@@ -1958,8 +1958,10 @@ function updateRefAudioVisibility() {
   const nameNode = refAudioName || document.getElementById('ref_audio_name');
   const mode = getGenerationMode();
   const needsAudio = (mode === 'Cover' || mode === 'Remix');
-  const effectivePath = String(generatedChordConditioningPath || uploadedRefAudioPath || '').trim();
-  const effectiveName = String(generatedChordConditioningName || (effectivePath ? effectivePath.split(/[\\/]/).pop() : '') || '').trim();
+  const effectivePath = String(((mode === 'Cover' || mode === 'Remix')
+    ? (uploadedRefAudioPath || generatedChordConditioningPath)
+    : (generatedChordConditioningPath || uploadedRefAudioPath)) || '').trim();
+  const effectiveName = String((effectivePath && effectivePath === String(uploadedRefAudioPath || '').trim() ? '' : generatedChordConditioningName) || (effectivePath ? effectivePath.split(/[\/]/).pop() : '') || '').trim();
 
   if (box) box.classList.toggle('hidden', !needsAudio);
   if (!status) return;
@@ -3024,14 +3026,16 @@ async function postJob() {
   let conditioningRouteDebug = 'none';
   let conditioningSourceDebug = 'none';
   if (generation_mode === 'Cover') {
-    reference_audio = generatedReferencePath || uploadedReferencePath;
+    src_audio = uploadedReferencePath || generatedReferencePath;
+    reference_audio = '';
     audio_codes = '';
-    conditioningRouteDebug = reference_audio ? 'reference_audio_wav' : 'none';
-    conditioningSourceDebug = generatedReferencePath ? 'generated_chord_reference' : (uploadedReferencePath ? 'uploaded_reference_audio' : 'none');
+    conditioningRouteDebug = src_audio ? 'src_audio_wav' : 'none';
+    conditioningSourceDebug = uploadedReferencePath ? 'uploaded_source_audio' : (generatedReferencePath ? 'generated_chord_reference' : 'none');
   } else if (generation_mode === 'Remix') {
     src_audio = uploadedReferencePath;
-    conditioningRouteDebug = src_audio ? (String(audio_codes || '').trim() ? 'src_audio_plus_audio_codes' : 'src_audio_wav') : (String(audio_codes || '').trim() ? 'audio_codes' : 'none');
-    conditioningSourceDebug = src_audio ? 'uploaded_reference_audio' : (String(audio_codes || '').trim() ? 'generated_chord_reference' : 'none');
+    audio_codes = '';
+    conditioningRouteDebug = src_audio ? 'src_audio_wav' : 'none';
+    conditioningSourceDebug = src_audio ? 'uploaded_reference_audio' : 'none';
   } else {
     reference_audio = '';
     conditioningRouteDebug = String(audio_codes || '').trim() ? 'audio_codes' : 'none';
@@ -3946,7 +3950,7 @@ function setupImportJson() {
     const src = (req.src_audio != null) ? String(req.src_audio) : '';
     const uiRef = (req.uploaded_reference_audio_path != null) ? String(req.uploaded_reference_audio_path) : '';
     const uiLm = (req.uploaded_lm_audio_path != null) ? String(req.uploaded_lm_audio_path) : '';
-    uploadedRefAudioPath = ref || src || uiRef || uploadedRefAudioPath || '';
+    uploadedRefAudioPath = uiRef || ref || src || uploadedRefAudioPath || '';
     uploadedLmAudioPath = uiLm || uploadedLmAudioPath || '';
     if (chordConditioningMode === 'full' && uploadedRefAudioPath && !generatedChordConditioningPath) {
       generatedChordConditioningPath = uploadedRefAudioPath;

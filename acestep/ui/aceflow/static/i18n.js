@@ -272,9 +272,9 @@
     
       'help.generation_mode': 'Choose how to generate: Simple hides advanced controls; Custom exposes everything; Cover uses a reference song; Remix repaints a source song.',
       'help.random_from_archive': 'Fills the fields with a random example without changing the selected mode.',
-      'label.ref_song_cover': 'Reference song (Cover)',
+      'label.ref_song_cover': 'Source song (Cover)',
       'label.ref_song_remix': 'Source song (Remix)',
-      'help.ref_song_cover': 'Upload the song you want to imitate. The voice/instruments will be guided by this reference.',
+      'help.ref_song_cover': 'Upload the source song used by the core Cover path. Both Cover noise strength and Audio cover strength affect how closely the result stays faithful to this source audio.',
       'help.ref_song_remix': 'Upload the song you want to remix. ACE-Step will repaint it according to your prompt.',
       'help.style': 'Describe mood, genre, instruments, vocals, and any constraints. This is the main creative prompt.',
       'help.lyrics': 'Optional. Leave empty for instrumental. Keep lines short for better alignment.',
@@ -584,9 +584,9 @@
     
       'help.generation_mode': 'Scegli come generare: Simple nasconde i controlli avanzati; Custom mostra tutto; Cover usa una canzone di riferimento; Remix “repaint” una canzone sorgente.',
       'help.random_from_archive': 'Compila i campi con un esempio casuale senza cambiare la modalità selezionata.',
-      'label.ref_song_cover': 'Canzone di riferimento (Cover)',
+      'label.ref_song_cover': 'Canzone sorgente (Cover)',
       'label.ref_song_remix': 'Canzone sorgente (Remix)',
-      'help.ref_song_cover': 'Carica la canzone che vuoi “imitare”. Voce/strumenti saranno guidati da questo riferimento.',
+      'help.ref_song_cover': 'Carica la canzone sorgente usata dal ramo Cover del core. Sia Cover noise strength sia Audio cover strength influenzano quanto il risultato resta fedele a questo audio sorgente.',
       'help.ref_song_remix': 'Carica la canzone che vuoi remixare. ACE-Step la “ridisegna” secondo il tuo prompt.',
       'help.style': 'Descrivi mood, genere, strumenti, voce e vincoli. Questo è il prompt creativo principale.',
       'help.lyrics': 'Opzionale. Lascia vuoto per strumentale. Righe brevi aiutano l’allineamento.',

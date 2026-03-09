@@ -1810,9 +1810,9 @@ def create_app() -> FastAPI:
                     if src_audio_rel:
                         src_audio_abs = _resolve_uploaded_path(src_audio_rel)
                 try:
-                    audio_cover_strength = float(req.get("audio_cover_strength", 1.0))
+                    audio_cover_strength = float(req.get("audio_cover_strength", 0.0))
                 except Exception:
-                    audio_cover_strength = 1.0
+                    audio_cover_strength = 0.0
                 audio_cover_strength = max(0.0, min(audio_cover_strength, 1.0))
                 try:
                     cover_noise_strength = float(req.get("cover_noise_strength", 0.0))
@@ -2311,7 +2311,7 @@ def create_app() -> FastAPI:
                 "latent_rescale": 1.0,
                 "enable_normalization": True,
                 "normalization_db": -1.0,
-                "audio_cover_strength": 1.0,
+                "audio_cover_strength": 0.0,
                 "cover_noise_strength": 0.0,
             },
         }
@@ -2544,11 +2544,11 @@ def create_app() -> FastAPI:
         src = str(src_audio or "").strip()
         codes = str(audio_codes or "").strip()
         if gm == "Cover":
+            if src:
+                return "src_audio_wav", "src_audio_wav"
             route = "reference_audio_wav" if ref else "none"
             return route, route
         if gm == "Remix":
-            if codes:
-                return "src_audio_plus_audio_codes", "src_audio_plus_audio_codes"
             route = "src_audio_wav" if src else "none"
             return route, route
         if codes:
@@ -2784,18 +2784,18 @@ timesignature: {timesignature}
         if generation_mode == "Cover":
             task_type = "cover"
         elif generation_mode == "Remix":
-            task_type = "repaint"
+            task_type = "cover"
         reference_audio = str(payload.get("reference_audio") or "").strip()
         src_audio = str(payload.get("src_audio") or "").strip()
         audio_codes = str(payload.get("audio_codes") or "").strip()
         if task_type == "cover":
             audio_codes = ""
             payload["audio_codes"] = ""
-            if not reference_audio:
-                raise HTTPException(status_code=400, detail="Per COVER devi caricare un audio di riferimento.")
-            _resolve_uploaded_path(reference_audio)
-            if src_audio:
-                _resolve_uploaded_path(src_audio)
+            if not src_audio:
+                raise HTTPException(status_code=400, detail="Per COVER devi caricare un audio sorgente.")
+            _resolve_uploaded_path(src_audio)
+            if reference_audio:
+                _resolve_uploaded_path(reference_audio)
         elif task_type == "repaint":
             if not src_audio:
                 raise HTTPException(status_code=400, detail="Per REMIX devi caricare un audio sorgente.")
