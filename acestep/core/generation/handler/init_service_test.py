@@ -512,6 +512,16 @@ class InitServiceMixinTests(unittest.TestCase):
         self.assertIsNot(dummy_module.pack_sequences, _pack_sequences)
         self.assertTrue(getattr(dummy_module.pack_sequences, "__acestep_bool_argsort_patched__", False))
 
+    def test_cuda_supports_bool_argsort_returns_false_for_unexpected_runtime_error(self):
+        """It treats any CUDA bool argsort RuntimeError as unsupported."""
+        host = _Host(project_root="K:/fake_root", device="cuda")
+
+        with patch("torch.cuda.is_available", return_value=True), patch(
+            "torch.tensor",
+            side_effect=RuntimeError("unexpected argsort failure"),
+        ):
+            self.assertFalse(host._cuda_supports_bool_argsort())
+
     def test_validate_quantization_setup_raises_import_error_when_torchao_missing(self):
         """It raises ImportError with guidance when torchao is unavailable."""
         host = _Host(project_root="K:/fake_root", device="cpu")

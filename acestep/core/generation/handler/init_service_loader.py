@@ -22,9 +22,11 @@ class InitServiceLoaderMixin:
             _ = torch.tensor([True, False], device=target_device).argsort()
             return True
         except RuntimeError as exc:
-            if "bool dtype" in str(exc):
-                return False
-            return True
+            logger.debug(
+                "[_cuda_supports_bool_argsort] Treating CUDA bool argsort probe failure as unsupported: {}",
+                exc,
+            )
+            return False
 
     def _apply_cuda_bool_argsort_workaround(self) -> None:
         """Patch dynamic model helpers when bool argsort is unsupported on CUDA."""

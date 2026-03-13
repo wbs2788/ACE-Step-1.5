@@ -271,6 +271,7 @@ if exist "%~dp0python_embedded\python.exe" (
     )
 
     call :EnsureLegacyNvidiaTorchCompat
+    if !ERRORLEVEL! NEQ 0 exit /b !ERRORLEVEL!
 
     echo Starting ACE-Step API Server...
     echo.
