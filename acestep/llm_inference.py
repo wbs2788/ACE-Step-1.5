@@ -21,6 +21,7 @@ from transformers.generation.logits_process import (
     LogitsProcessorList,
     RepetitionPenaltyLogitsProcessor,
 )
+from acestep.llm_backend_compat import get_vllm_preflight_warning
 from acestep.constrained_logits_processor import MetadataConstrainedLogitsProcessor
 from acestep.constants import DEFAULT_LM_INSTRUCTION, DEFAULT_LM_UNDERSTAND_INSTRUCTION, DEFAULT_LM_INSPIRED_INSTRUCTION, DEFAULT_LM_REWRITE_INSTRUCTION, DURATION_MIN, DURATION_MAX
 from acestep.gpu_config import get_lm_gpu_memory_ratio, get_gpu_memory_gb, get_lm_model_size, get_global_gpu_config
@@ -77,6 +78,23 @@ class LLMHandler:
         # MLX model reference (used when llm_backend == "mlx")
         self._mlx_model = None
         self._mlx_model_path = None
+
+    def _clear_accelerator_cache(self) -> None:
+        """Release freed accelerator memory back to the driver.
+
+        Clears the cache of the accelerator that was actually used for
+        generation (based on ``self.device``), rather than clearing by
+        availability order.  Supports CUDA, XPU (Intel), and MPS
+        (Apple Silicon) backends.
+        """
+        active_device = str(getattr(self, "device", "cpu")).split(":")[0]
+        if active_device == "cuda" and torch.cuda.is_available():
+            torch.cuda.empty_cache()
+        elif active_device == "xpu" and hasattr(torch, "xpu") and torch.xpu.is_available():
+            torch.xpu.empty_cache()
+        elif active_device == "mps" and hasattr(torch.backends, "mps") and torch.backends.mps.is_available():
+            if hasattr(torch.mps, "empty_cache"):
+                torch.mps.empty_cache()
 
     def unload(self) -> None:
         """Release LM weights/tokenizer and clear caches to free memory."""
@@ -600,7 +618,18 @@ class LLMHandler:
                     "(SDPA fallback uses .item() calls in paged-cache decode that are "
                     "incompatible with CUDA graph capture)"
                 )
-            enforce_eager_for_vllm = bool(is_rocm or is_jetson or not _has_flash_attn)
+            _has_triton = False
+            try:
+                import triton  # noqa: F401
+                _has_triton = True
+            except ImportError:
+                pass
+            if not _has_triton:
+                logger.info(
+                    "Triton not available: disabling CUDA graph capture for nano-vllm "
+                    "(CUDA graphs require torch.compile which depends on Triton)"
+                )
+            enforce_eager_for_vllm = bool(is_rocm or is_jetson or not _has_flash_attn or not _has_triton)
 
             # Auto-detect best backend on Apple Silicon
             if backend == "mlx" or (backend == "vllm" and device == "mps"):
@@ -636,6 +665,15 @@ class LLMHandler:
                 )
                 backend = "pt"
 
+            vllm_preflight_warning = None
+            if backend == "vllm":
+                vllm_preflight_warning = get_vllm_preflight_warning(device=device)
+                if vllm_preflight_warning is not None:
+                    logger.warning(f"[initialize] {vllm_preflight_warning}")
+                    backend = "pt"
+
+            vllm_fallback_note = None
+
             # Initialize based on user-selected backend
             if backend == "vllm":
                 _warn_if_prerelease_python()
@@ -663,9 +701,12 @@ class LLMHandler:
                     status_msg = self._initialize_5hz_lm_vllm(
                         full_lm_model_path,
                         enforce_eager=enforce_eager_for_vllm,
+                        has_triton=_has_triton,
                     )
                     logger.info(f"5Hz LM status message: {status_msg}")
                     if status_msg.startswith("❌"):
+                        logger.warning(f"vLLM initialization failed before PyTorch fallback: {status_msg}")
+                        vllm_fallback_note = status_msg.splitlines()[0]
                         if not self.llm_initialized:
                             if device == "mps" and self._is_mlx_available():
                                 logger.warning("vllm failed on MPS, trying MLX backend...")
@@ -678,19 +719,33 @@ class LLMHandler:
                             if not success:
                                 return status_msg, False
                             status_msg = f"✅ 5Hz LM initialized successfully (PyTorch fallback)\nModel: {full_lm_model_path}\nBackend: PyTorch"
+                            if vllm_fallback_note is not None:
+                                status_msg += f"\nNote: {vllm_fallback_note}"
             elif backend != "mlx":
                 success, status_msg = self._load_pytorch_model(full_lm_model_path, device)
                 if not success:
                     return status_msg, False
+                if vllm_preflight_warning is not None:
+                    status_msg += f"\nNote: {vllm_preflight_warning}"
 
             return status_msg, True
 
         except Exception as e:
             return f"❌ Error initializing 5Hz LM: {str(e)}\n\nTraceback:\n{traceback.format_exc()}", False
 
-    def _initialize_5hz_lm_vllm(self, model_path: str, enforce_eager: bool = False) -> str:
-        """Initialize 5Hz LM model using vllm backend. When enforce_eager is True, CUDA graph
-        capture is disabled (required when LoRA training may run in the same process)."""
+    def _initialize_5hz_lm_vllm(self, model_path: str, enforce_eager: bool = False, has_triton: bool = True) -> str:
+        """Initialize 5Hz LM model using vllm backend.
+
+        Args:
+            model_path: Path to the 5Hz LM model checkpoint.
+            enforce_eager: Disable CUDA graph capture.  Set to ``True`` when
+                Triton is unavailable so vLLM does not attempt graph capture
+                that depends on compiled kernels.
+            has_triton: Whether the Triton compiler is available.  When
+                ``False``, ``torch._dynamo`` diagnostics are temporarily
+                suppressed during initialization to avoid verbose fallback
+                warnings, then restored afterwards.
+        """
         if not torch.cuda.is_available():
             self.llm_initialized = False
             logger.error("CUDA/ROCm is not available. Please check your GPU setup.")
@@ -699,8 +754,8 @@ class LLMHandler:
             from nanovllm import LLM, SamplingParams
         except ImportError:
             self.llm_initialized = False
-            logger.error("nano-vllm is not installed. Please install it using 'cd acestep/third_parts/nano-vllm && pip install .")
-            return "❌ nano-vllm is not installed. Please install it using 'cd acestep/third_parts/nano-vllm && pip install ."
+            logger.error("nano-vllm is not installed. Please install it using 'cd acestep/third_parts/nano-vllm && pip install .'")
+            return "❌ nano-vllm is not installed. Please install it using 'cd acestep/third_parts/nano-vllm && pip install .'"
 
         try:
             current_device = torch.cuda.current_device()
@@ -723,21 +778,53 @@ class LLMHandler:
                 self.max_model_len = 4096
 
             logger.info(f"Initializing 5Hz LM with model: {model_path}, enforce_eager: {enforce_eager}, tensor_parallel_size: 1, max_model_len: {self.max_model_len}, gpu_memory_utilization: {gpu_memory_utilization:.3f}")
-            start_time = time.time()
-            self.llm = LLM(
-                model=model_path,
-                enforce_eager=enforce_eager,
-                tensor_parallel_size=1,
-                max_model_len=self.max_model_len,
-                gpu_memory_utilization=gpu_memory_utilization,
-                tokenizer=self.llm_tokenizer,
-            )
-            logger.info(f"5Hz LM initialized successfully in {time.time() - start_time:.2f} seconds")
-            self.llm_initialized = True
-            self.llm_backend = "vllm"
-            return f"✅ 5Hz LM initialized successfully\nModel: {model_path}\nDevice: {device_name}\nGPU Memory Utilization: {gpu_memory_utilization:.3f}\nLow GPU Memory Mode: {low_gpu_memory_mode}"
+
+            # When Triton is unavailable, torch._dynamo still attempts to
+            # compile functions decorated with @torch.compile and emits
+            # verbose "WON'T CONVERT" warnings with full tracebacks.
+            # suppress_errors makes it fall back silently to eager mode,
+            # and raising the log level hides the noisy warning output.
+            # State is restored after init to avoid masking diagnostics
+            # from other components.
+            _dynamo_state_saved = False
+            if not has_triton:
+                import torch._dynamo as _dynamo
+                import logging as _logging
+                _dynamo_logger = _logging.getLogger("torch._dynamo")
+                _prev_suppress = _dynamo.config.suppress_errors
+                _prev_log_level = _dynamo_logger.level
+                _dynamo.config.suppress_errors = True
+                _dynamo_logger.setLevel(_logging.ERROR)
+                _dynamo_state_saved = True
+
+            try:
+                start_time = time.time()
+                self.llm = LLM(
+                    model=model_path,
+                    enforce_eager=enforce_eager,
+                    tensor_parallel_size=1,
+                    max_model_len=self.max_model_len,
+                    gpu_memory_utilization=gpu_memory_utilization,
+                    tokenizer=self.llm_tokenizer,
+                )
+                logger.info(f"5Hz LM initialized successfully in {time.time() - start_time:.2f} seconds")
+                self.llm_initialized = True
+                self.llm_backend = "vllm"
+                return f"✅ 5Hz LM initialized successfully\nModel: {model_path}\nDevice: {device_name}\nGPU Memory Utilization: {gpu_memory_utilization:.3f}\nLow GPU Memory Mode: {low_gpu_memory_mode}"
+            finally:
+                if _dynamo_state_saved:
+                    _dynamo.config.suppress_errors = _prev_suppress
+                    _dynamo_logger.setLevel(_prev_log_level)
         except Exception as e:
             self.llm_initialized = False
+            if "Cannot find a working triton installation" in str(e):
+                status_msg = "❌ vLLM backend requires a working Triton installation."
+                if sys.platform == "win32":
+                    status_msg += (
+                        " Falling back to PyTorch is recommended on Windows. "
+                        "Use --backend pt to avoid this warning."
+                    )
+                return status_msg
             return f"❌ Error initializing 5Hz LM: {str(e)}\n\nTraceback:\n{traceback.format_exc()}"
 
     def _run_vllm(
@@ -1418,6 +1505,8 @@ class LLMHandler:
                         }
                     },
                 }
+            finally:
+                self._clear_accelerator_cache()
 
             # Parse audio codes from each output
             audio_codes_list = []
@@ -2266,6 +2355,7 @@ class LLMHandler:
                     lyrics=lyrics,
                     cot_text=cot_text,
                 )
+                self._clear_accelerator_cache()
                 return output_text, f"✅ Generated successfully (vllm) | length={len(output_text)}"
 
             elif self.llm_backend == "mlx":
@@ -2291,6 +2381,7 @@ class LLMHandler:
                     lyrics=lyrics,
                     cot_text=cot_text,
                 )
+                self._clear_accelerator_cache()
                 return output_text, f"✅ Generated successfully (mlx) | length={len(output_text)}"
 
             # PyTorch backend (fallback)
@@ -2315,6 +2406,7 @@ class LLMHandler:
                 lyrics=lyrics,
                 cot_text=cot_text,
             )
+            self._clear_accelerator_cache()
             return output_text, f"✅ Generated successfully (pt) | length={len(output_text)}"
 
         except Exception as e:
@@ -2338,15 +2430,7 @@ class LLMHandler:
                 except Exception:
                     pass  # Ignore errors during cleanup
             # Clear accelerator cache to release any corrupted memory
-            if torch.cuda.is_available():
-                torch.cuda.empty_cache()
-                torch.cuda.synchronize()
-            elif hasattr(torch, 'xpu') and torch.xpu.is_available():
-                torch.xpu.empty_cache()
-                torch.xpu.synchronize()
-            elif hasattr(torch.backends, "mps") and torch.backends.mps.is_available():
-                torch.mps.empty_cache()
-                torch.mps.synchronize()
+            self._clear_accelerator_cache()
             return "", f"❌ Error generating from formatted prompt: {type(e).__name__}: {e or error_detail.splitlines()[-1]}"
 
     def _generate_with_constrained_decoding(
