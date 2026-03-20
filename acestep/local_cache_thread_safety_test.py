@@ -1,17 +1,17 @@
-"""Thread safety tests for the local_cache module-level singleton."""
+"""Thread safety tests for the local_cache singleton."""
 
 import threading
 import unittest
 
-from acestep.local_cache import _local_cache_lock
+from acestep.local_cache import LocalCache
 
 
 class LocalCacheLockTests(unittest.TestCase):
-    """Verify get_local_cache() has proper lock protection."""
+    """Verify LocalCache.__new__ has proper double-checked locking."""
 
-    def test_module_lock_exists(self):
-        """Module-level lock for get_local_cache must be present."""
-        self.assertIsInstance(_local_cache_lock, type(threading.Lock()))
+    def test_class_level_lock_exists(self):
+        """LocalCache._lock must be present for singleton thread safety."""
+        self.assertIsInstance(LocalCache._lock, type(threading.Lock()))
 
 
 if __name__ == "__main__":
