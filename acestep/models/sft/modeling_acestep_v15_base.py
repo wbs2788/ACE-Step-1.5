@@ -45,10 +45,10 @@ from vector_quantize_pytorch import ResidualFSQ
 # Local config import with fallback
 try:
     from .configuration_acestep_v15 import AceStepConfig
-    from .apg_guidance import adg_forward, apg_forward, MomentumBuffer
+    from .apg_guidance import adg_forward, apg_forward, cfg_forward, MomentumBuffer
 except ImportError:
     from configuration_acestep_v15 import AceStepConfig
-    from apg_guidance import adg_forward, apg_forward, MomentumBuffer
+    from apg_guidance import adg_forward, apg_forward, cfg_forward, MomentumBuffer
 
 
 logger = logging.get_logger(__name__)
@@ -1862,6 +1862,9 @@ class AceStepConditionGenerationModel(AceStepPreTrainedModel):
         clean_src_latents: Optional[torch.FloatTensor] = None,
         repaint_crossfade_frames: int = 10,
         repaint_injection_ratio: float = 0.5,
+        sampler_mode: str = "euler",
+        velocity_norm_threshold: float = 0.0,
+        velocity_ema_factor: float = 0.0,
         **kwargs,
     ):
         if attention_mask is None:
@@ -1970,6 +1973,14 @@ class AceStepConditionGenerationModel(AceStepPreTrainedModel):
             context_latents = torch.cat([context_latents, context_latents], dim=0)
             attention_mask = torch.cat([attention_mask, attention_mask], dim=0)
 
+        use_heun = sampler_mode == "heun"
+        use_norm_clamp = velocity_norm_threshold > 0.0
+        use_ema = velocity_ema_factor > 0.0
+        prev_vt = None
+        if use_heun and infer_method == "sde":
+            logger.warning("Heun sampler is not compatible with SDE; falling back to Euler.")
+            use_heun = False
+
         _switched_to_non_cover = False
         with torch.no_grad():
             for step_idx, (t_curr, t_prev) in enumerate(iterator):
@@ -2024,6 +2035,17 @@ class AceStepConditionGenerationModel(AceStepPreTrainedModel):
                             )
                     else:
                         vt = pred_cond
+                # Velocity norm clamping — prevents outlier predictions
+                if use_norm_clamp:
+                    vt_norm = torch.norm(vt, dim=(1, 2), keepdim=True)
+                    xt_norm = torch.norm(xt, dim=(1, 2), keepdim=True) + 1e-10
+                    scale = torch.clamp(velocity_norm_threshold * xt_norm / (vt_norm + 1e-10), max=1.0)
+                    vt = vt * scale
+
+                # Velocity EMA smoothing — stabilises denoising trajectory
+                if use_ema and prev_vt is not None:
+                    vt = (1.0 - velocity_ema_factor) * vt + velocity_ema_factor * prev_vt
+
                 # Update x_t based on inference method
                 if infer_method == "sde":
                     # Stochastic Differential Equation: predict clean, then re-add noise
@@ -2032,6 +2054,58 @@ class AceStepConditionGenerationModel(AceStepPreTrainedModel):
                     next_timestep = 1.0 - (float(step_idx + 1) / infer_steps)
                     xt = self.renoise(pred_clean, next_timestep)
                     t_after_step = next_timestep
+                elif use_heun and infer_method == "ode":
+                    # Heun (second-order) ODE step via trapezoidal rule
+                    dt = t_curr - t_prev
+                    dt_tensor = dt * torch.ones((bsz,), device=device, dtype=dtype).unsqueeze(-1).unsqueeze(-1)
+                    xt_predicted = xt - vt * dt_tensor
+                    x2 = torch.cat([xt_predicted, xt_predicted], dim=0) if do_cfg_guidance else xt_predicted
+                    t_prev_tensor = t_prev * torch.ones((x2.shape[0],), device=device, dtype=dtype)
+                    corrector_kv = EncoderDecoderCache(DynamicCache(), DynamicCache())
+                    decoder_outputs2 = self.decoder(
+                        hidden_states=x2,
+                        timestep=t_prev_tensor,
+                        timestep_r=t_prev_tensor,
+                        attention_mask=attention_mask,
+                        encoder_hidden_states=encoder_hidden_states,
+                        encoder_attention_mask=encoder_attention_mask,
+                        context_latents=context_latents,
+                        use_cache=False,
+                        past_key_values=corrector_kv,
+                    )
+                    vt2 = decoder_outputs2[0]
+                    if do_cfg_guidance:
+                        pred_cond2, pred_null_cond2 = vt2.chunk(2)
+                        # Recompute CFG interval for corrector timestep (t_prev, not t_curr)
+                        apply_cfg_corrector = t_prev >= cfg_interval_start and t_prev <= cfg_interval_end
+                        if apply_cfg_corrector:
+                            if not use_adg:
+                                # Use basic CFG for corrector to avoid mutating APG momentum twice per step
+                                vt2 = cfg_forward(pred_cond2, pred_null_cond2, diffusion_guidance_sale)
+                            elif t_prev > 0:
+                                # Guard against sigma=0 which causes NaN in ADG division
+                                vt2 = adg_forward(
+                                    latents=xt_predicted,
+                                    noise_pred_cond=pred_cond2,
+                                    noise_pred_uncond=pred_null_cond2,
+                                    sigma=t_prev,
+                                    guidance_scale=diffusion_guidance_sale,
+                                )
+                            else:
+                                vt2 = cfg_forward(pred_cond2, pred_null_cond2, diffusion_guidance_sale)
+                        else:
+                            vt2 = pred_cond2
+                    if use_norm_clamp:
+                        vt2_norm = torch.norm(vt2, dim=(1, 2), keepdim=True)
+                        xt_pred_norm = torch.norm(xt_predicted, dim=(1, 2), keepdim=True) + 1e-10
+                        scale2 = torch.clamp(velocity_norm_threshold * xt_pred_norm / (vt2_norm + 1e-10), max=1.0)
+                        vt2 = vt2 * scale2
+                    if use_ema:
+                        vt2 = (1.0 - velocity_ema_factor) * vt2 + velocity_ema_factor * vt
+                    vt_avg = 0.5 * (vt + vt2)
+                    xt = xt - vt_avg * dt_tensor
+                    vt = vt_avg
+                    t_after_step = t_prev
                 elif infer_method == "ode":
                     # Ordinary Differential Equation: Euler method
                     # dx/dt = -v, so x_{t+1} = x_t - v_t * dt
@@ -2039,6 +2113,8 @@ class AceStepConditionGenerationModel(AceStepPreTrainedModel):
                     dt_tensor = dt * torch.ones((bsz,), device=device, dtype=dtype).unsqueeze(-1).unsqueeze(-1)
                     xt = xt - vt * dt_tensor
                     t_after_step = t_prev
+
+                prev_vt = vt
 
                 injection_cutoff = round(repaint_injection_ratio * infer_steps)
                 if repaint_mask is not None and clean_src_latents is not None and step_idx < injection_cutoff:
