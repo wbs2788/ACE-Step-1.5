@@ -304,17 +304,11 @@ class GenerateMusicMixin:
             if audio_error is not None:
                 return audio_error
 
-            # For cover/repaint/extract tasks, the output duration must match
-            # the source audio — ignore any caller-supplied audio_duration.
-            if processed_src_audio is not None and task_type in ("cover", "repaint", "lego", "extract"):
-                src_duration = processed_src_audio.shape[-1] / self.sample_rate
-                if audio_duration is not None and audio_duration != src_duration:
-                    logger.info(
-                        "[generate_music] %s task: overriding audio_duration=%.1f "
-                        "with src_audio duration=%.1f",
-                        task_type, audio_duration, src_duration,
-                    )
-                audio_duration = src_duration
+            # Cover/repaint/lego/extract: lock duration to source audio.
+            if processed_src_audio is not None and task_type in (
+                "cover", "repaint", "lego", "extract",
+            ):
+                audio_duration = processed_src_audio.shape[-1] / self.sample_rate
 
             service_inputs = self._prepare_generate_music_service_inputs(
                 actual_batch_size=actual_batch_size,

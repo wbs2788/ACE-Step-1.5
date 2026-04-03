@@ -603,6 +603,12 @@ def generate_music(
             logger.info(f"[generate_music] {params.task_type} task: using params.caption='{params.caption}', params.lyrics='{params.lyrics}'")
             logger.info(f"[generate_music] Final inputs: dit_input_caption='{dit_input_caption}', dit_input_lyrics='{dit_input_lyrics}'")
 
+        # Cover/repaint/lego/extract: duration is locked to the source audio
+        # length.  Silently ignore whatever the caller passed — the handler
+        # will set audio_duration from the loaded waveform.
+        if params.task_type in ("cover", "repaint", "lego", "extract"):
+            audio_duration = None
+
         # Phase 2: DiT music generation
         # Use seed_for_generation (from config.seed or params.seed) instead of params.seed for actual generation
         dit_generate_kwargs = {
