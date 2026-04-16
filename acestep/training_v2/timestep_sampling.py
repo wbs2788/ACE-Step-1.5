@@ -74,6 +74,36 @@ def sample_timesteps(
 
 
 # ---------------------------------------------------------------------------
+# Discrete timestep sampling (for Consistency Distillation)
+# ---------------------------------------------------------------------------
+
+def sample_discrete_timesteps(
+    batch_size: int,
+    device: torch.device | str,
+    dtype: torch.dtype,
+    schedule: list[float] | torch.Tensor,
+) -> torch.Tensor:
+    """Sample timesteps from a discrete set (schedule).
+
+    Args:
+        batch_size: Number of samples.
+        device: Torch device.
+        dtype: Tensor dtype.
+        schedule: List or tensor of valid timesteps (e.g. [1.0, 0.8, 0.6, ...]).
+
+    Returns:
+        Timesteps of shape ``[batch_size]``.
+    """
+    if not isinstance(schedule, torch.Tensor):
+        schedule = torch.tensor(schedule, device=device, dtype=dtype)
+    else:
+        schedule = schedule.to(device=device, dtype=dtype)
+
+    indices = torch.randint(0, len(schedule), (batch_size,), device=device)
+    return schedule[indices]
+
+
+# ---------------------------------------------------------------------------
 # CFG dropout
 # ---------------------------------------------------------------------------
 

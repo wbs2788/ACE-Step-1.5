@@ -231,6 +231,22 @@ class TrainingConfigV2(TrainingConfig):
     max_duration: float = 240.0
     """Maximum audio duration in seconds (preprocessing)."""
 
+    # --- Consistency Distillation -------------------------------------------
+    fft_weight: float = 1.0
+    """Weight for 1D-FFT amplitude L1 loss."""
+
+    diff_weight: float = 1.0
+    """Weight for time-domain first-order difference loss."""
+
+    condition_seconds: float = 1.0
+    """Duration of the conditioning prefix (KV-cache) in seconds."""
+
+    prediction_seconds: float = 3.0
+    """Duration of the prediction (distillation target) in seconds."""
+
+    teacher_variant: str = "xl_turbo"
+    """Model variant for the teacher (e.g., 'xl_turbo')."""
+
     # -----------------------------------------------------------------------
     # Helpers
     # -----------------------------------------------------------------------
@@ -285,6 +301,11 @@ class TrainingConfigV2(TrainingConfig):
                 "dataset_json": self.dataset_json,
                 "tensor_output": self.tensor_output,
                 "max_duration": self.max_duration,
+                "fft_weight": self.fft_weight,
+                "diff_weight": self.diff_weight,
+                "condition_seconds": self.condition_seconds,
+                "prediction_seconds": self.prediction_seconds,
+                "teacher_variant": self.teacher_variant,
             }
         )
         return base
