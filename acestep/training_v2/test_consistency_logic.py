@@ -41,8 +41,10 @@ class TestConsistencyLogic(unittest.TestCase):
             batch_size=2,
             fft_weight=1.0,
             diff_weight=1.0,
-            condition_seconds=1.0,
-            prediction_seconds=1.0, # Shorter for test
+            condition_seconds=10.0,
+            prediction_seconds=30.0, 
+            warmup_seconds=10.0,
+            max_distill_seconds=40.0, # 1s warmup + 3x 1s chunks
         )
         
         # Instantiate module
@@ -52,63 +54,71 @@ class TestConsistencyLogic(unittest.TestCase):
             training_config=self.train_config,
             device=self.device,
             dtype=self.dtype,
-            condition_seconds=1.0,
-            prediction_seconds=1.0,
-            fps=25, # Use 25 for testing
+            warmup_seconds=10.0,
+            prediction_seconds=30.0,
+            max_distill_seconds=40.0,
+            fps=25, 
         )
 
-    def test_forward_step(self):
-        """Verifies that the training_step runs and returns valid losses."""
+    def test_forward_step_real_data(self):
+        """Verifies that the sequential training_step runs with real audio data."""
         bsz = 2
-        total_frames = self.module.total_frames
+        # Use module's actual frames
+        total_frames = self.module.warmup_frames + self.module.prediction_frames
         
         # Mock batch
         batch = {
             "target_latents": torch.randn(bsz, total_frames, 64),
             "attention_mask": torch.ones(bsz, total_frames),
-            "encoder_hidden_states": torch.randn(bsz, 20, 64), # Match text_hidden_dim=64
+            "encoder_hidden_states": torch.randn(bsz, 20, 64),
             "encoder_attention_mask": torch.ones(bsz, 20),
-            "context_latents": torch.randn(bsz, total_frames, 128), # Match audio_acoustic_hidden_dim (64) * 2 or similar
+            "context_latents": torch.randn(bsz, total_frames, 128),
         }
         
-        print("Running training_step...")
+        print("Running sequential training_step (Real Data)...")
         losses = self.module.training_step(batch)
         
         # Assertions
         self.assertIn("loss_total", losses)
-        self.assertIn("loss_time_mse", losses)
-        self.assertIn("loss_freq_l1", losses)
-        self.assertIn("loss_diff", losses)
-        
         self.assertGreater(losses["loss_total"].item(), 0.0)
-        print(f"Test Step OK. Total Loss: {losses['loss_total'].item():.4f}")
+        print(f"Test Real Data OK. Total Loss: {losses['loss_total'].item():.4f}")
 
-    def test_pkv_deepcopy_integrity(self):
-        """Checks if PKV deepcopy mechanism is working in the solver."""
-        # This tests the user's manual fix: curr_pkv = copy.deepcopy(past_key_values)
-        xt = torch.randn(2, 5, 64)
-        t_start = 1.0
-        att_mask = torch.ones(2, 5)
-        enc_hs = torch.randn(2, 10, 64) # Match hidden_size=64
-        enc_mask = torch.ones(2, 10)
-        ctx = torch.randn(2, 5, 128)
+    def test_forward_step_synthetic(self):
+        """Verifies that the sequential training_step runs in Synthetic Mode (No Real Audio)."""
+        bsz = 2
         
-        # Mock prefix PKVs
-        from transformers.cache_utils import DynamicCache, EncoderDecoderCache
-        pkv = EncoderDecoderCache(DynamicCache(), DynamicCache())
+        # Mock batch (NO target_latents)
+        batch = {
+            "encoder_hidden_states": torch.randn(bsz, 20, 64),
+            "encoder_attention_mask": torch.ones(bsz, 20),
+        }
+        
+        print("Running sequential training_step (Synthetic Mode)...")
+        losses = self.module.training_step(batch)
+        
+        # Assertions
+        self.assertIn("loss_total", losses)
+        self.assertGreater(losses["loss_total"].item(), 0.0)
+        print(f"Test Synthetic OK. Total Loss: {losses['loss_total'].item():.4f}")
+
+    def test_teacher_pkv_propagation(self):
+        """Verifies that the Teacher can generate a chunk and update PKV."""
+        bsz = 1
+        noise = torch.randn(bsz, 25, 64)
+        enc_hs = torch.randn(bsz, 10, 64)
+        enc_mask = torch.ones(bsz, 10)
+        ctx = torch.randn(bsz, 25, 128)
+        mask = torch.ones(bsz, 25)
         
         # Run solver
-        print("Running teacher solver with PKV deepcopy...")
-        # Solver will iterate through steps. If deepcopy works, the original pkv should remain empty (or unchanged)
-        # while if it was shallow, it might have been modified.
-        # Actually EncoderDecoderCache is a complex object, but deepcopy should handle it.
-        
-        target_x0 = self.module._teacher_solver_8step(
-            xt, t_start, att_mask, enc_hs, enc_mask, ctx, pkv
+        print("Testing Teacher chunk generation and PKV update...")
+        x0, next_pkv = self.module._generate_teacher_chunk(
+            noise, 1.0, None, enc_hs, enc_mask, ctx, mask
         )
         
-        self.assertEqual(target_x0.shape, xt.shape)
-        print("Solver integrity test passed.")
+        self.assertEqual(x0.shape, noise.shape)
+        self.assertIsNotNone(next_pkv)
+        print("PKV Propagation test passed.")
 
 if __name__ == "__main__":
     unittest.main()

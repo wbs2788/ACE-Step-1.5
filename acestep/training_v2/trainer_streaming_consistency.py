@@ -23,6 +23,7 @@ from acestep.training.lokr_utils import inject_lokr_into_dit
 
 # V2 infrastructure
 from acestep.training_v2.configs import TrainingConfigV2, LoRAConfigV2, LoKRConfigV2
+from acestep.training_v2.consistency_prompt_data import PromptBatchConditioner, PromptOnlyDataModule
 from acestep.training_v2.model_loader import load_decoder_for_training
 from acestep.training_v2.trainer_basic_loop import run_basic_training_loop
 from acestep.training_v2.ui import TrainingUpdate
@@ -66,17 +67,27 @@ class StreamingConsistencyTrainer:
                 torch.cuda.manual_seed_all(cfg.seed)
 
             # -- Data -------------------------------------------------------
-            from acestep.training.data_module import PreprocessedDataModule
             num_workers = cfg.num_workers
             if sys.platform == "win32" and num_workers > 0:
                 num_workers = 0
 
-            data_module = PreprocessedDataModule(
-                tensor_dir=cfg.dataset_dir,
-                batch_size=cfg.batch_size,
-                num_workers=num_workers,
-                pin_memory=cfg.pin_memory,
-            )
+            if cfg.data_free:
+                data_module = PromptOnlyDataModule(
+                    prompt_file=cfg.prompt_file,
+                    dataset_json=cfg.dataset_json,
+                    batch_size=cfg.batch_size,
+                    num_workers=num_workers,
+                    pin_memory=cfg.pin_memory,
+                )
+            else:
+                from acestep.training.data_module import PreprocessedDataModule
+
+                data_module = PreprocessedDataModule(
+                    tensor_dir=cfg.dataset_dir,
+                    batch_size=cfg.batch_size,
+                    num_workers=num_workers,
+                    pin_memory=cfg.pin_memory,
+                )
             data_module.setup("fit")
             
             if len(data_module.train_dataset) == 0:
@@ -130,13 +141,29 @@ class StreamingConsistencyTrainer:
                 dtype=dtype,
                 condition_seconds=cfg.condition_seconds,
                 prediction_seconds=cfg.prediction_seconds,
+                warmup_seconds=cfg.warmup_seconds,
+                max_distill_seconds=cfg.max_distill_seconds,
                 adapter_info=adapter_info,
                 lycoris_net=lycoris_net,
             )
+            prompt_conditioner: Optional[PromptBatchConditioner] = None
+            if cfg.data_free:
+                prompt_conditioner = PromptBatchConditioner(
+                    teacher_model=teacher_model,
+                    checkpoint_dir=cfg.checkpoint_dir,
+                    model_variant=cfg.model_variant,
+                    device=device,
+                    precision=precision,
+                    latent_length=self.module.warmup_frames + self.module.max_distill_frames,
+                    dtype=dtype,
+                )
+
             # Wrap standard training_step to handle the dict return from consistency_module
             # run_basic_training_loop expects loss = module.training_step(batch)
             orig_step = self.module.training_step
             def wrapped_step(batch):
+                if prompt_conditioner is not None and "prompts" in batch:
+                    batch = prompt_conditioner.prepare_batch(batch)
                 losses = orig_step(batch)
                 
                 if self.training_config.use_wandb and wandb.run is not None:

@@ -244,8 +244,20 @@ class TrainingConfigV2(TrainingConfig):
     prediction_seconds: float = 3.0
     """Duration of the prediction (distillation target) in seconds."""
 
+    warmup_seconds: float = 1.0
+    """Duration of the initial context generation in seconds."""
+
+    max_distill_seconds: float = 12.0
+    """Maximum duration of the sequential distillation chain in seconds."""
+
     teacher_variant: str = "xl_turbo"
     """Model variant for the teacher (e.g., 'xl_turbo')."""
+
+    data_free: bool = False
+    """Enable prompt-only distillation without target audio latents."""
+
+    prompt_file: Optional[str] = None
+    """Path to a txt/json/jsonl prompt source used in ``data_free`` mode."""
 
     # -----------------------------------------------------------------------
     # Helpers

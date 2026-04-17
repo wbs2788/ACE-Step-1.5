@@ -19,6 +19,9 @@ VARIANT_DIR_MAP = {
     "turbo": "acestep-v15-turbo",
     "base": "acestep-v15-base",
     "sft": "acestep-v15-sft",
+    "xl_turbo": "acestep-v15-xl-turbo",
+    "xl_base": "acestep-v15-xl-base",
+    "xl_sft": "acestep-v15-xl-sft",
 }
 
 
@@ -149,6 +152,19 @@ def build_root_parser() -> argparse.ArgumentParser:
         help="Random seed (default: 42)",
     )
 
+    # -- consistency (distillation) ------------------------------------------
+    p_consistency = subparsers.add_parser(
+        "consistency",
+        help="Streaming Consistency Distillation: 8-step to 1-step compression",
+        formatter_class=formatter_class,
+    )
+    _add_common_training_args(
+        p_consistency,
+        require_dataset_dir=False,
+        require_output_dir=True,
+    )
+    _add_consistency_args(p_consistency)
+
     return root
 
 
@@ -222,8 +238,15 @@ def _add_common_training_args(
     parser: argparse.ArgumentParser,
     *,
     require_training_paths: bool = True,
+    require_dataset_dir: bool | None = None,
+    require_output_dir: bool | None = None,
 ) -> None:
     """Add arguments shared by vanilla / fixed subcommands."""
+    if require_dataset_dir is None:
+        require_dataset_dir = require_training_paths
+    if require_output_dir is None:
+        require_output_dir = require_training_paths
+
     _add_model_args(parser)
     _add_device_args(parser)
 
@@ -232,7 +255,7 @@ def _add_common_training_args(
     g_data.add_argument(
         "--dataset-dir",
         type=str,
-        required=require_training_paths,
+        required=require_dataset_dir,
         help="Directory containing preprocessed .pt files",
     )
     g_data.add_argument(
@@ -302,7 +325,7 @@ def _add_common_training_args(
 
     # -- Checkpointing -------------------------------------------------------
     g_ckpt = parser.add_argument_group("Checkpointing")
-    g_ckpt.add_argument("--output-dir", type=str, required=require_training_paths, help="Output directory for LoRA weights")
+    g_ckpt.add_argument("--output-dir", type=str, required=require_output_dir, help="Output directory for LoRA weights")
     g_ckpt.add_argument("--save-every", type=int, default=10, help="Save checkpoint every N epochs (default: 10)")
     g_ckpt.add_argument("--resume-from", type=str, default=None, help="Path to checkpoint dir to resume from")
 
@@ -336,3 +359,66 @@ def _add_estimation_args(parser: argparse.ArgumentParser) -> None:
     g.add_argument("--top-k", type=int, default=16, help="Number of top modules to select (default: 16)")
     g.add_argument("--granularity", type=str, default="module", choices=["layer", "module"], help="Estimation granularity (default: module)")
     g.add_argument("--output", type=str, default=None, dest="estimate_output", help="Path to write module config JSON (estimate only)")
+def _add_consistency_args(parser: argparse.ArgumentParser) -> None:
+    """Add arguments specific to consistency distillation."""
+    g = parser.add_argument_group("Consistency Distillation")
+    g.add_argument(
+        "--fft-weight", 
+        type=float, 
+        default=1.0, 
+        help="Weight for frequency-domain FFT loss (default: 1.0)"
+    )
+    g.add_argument(
+        "--diff-weight", 
+        type=float, 
+        default=1.0, 
+        help="Weight for temporal difference loss (default: 1.0)"
+    )
+    g.add_argument(
+        "--condition-seconds", 
+        type=float, 
+        default=1.0, 
+        help="Duration of the prefix KV-cache condition in seconds (default: 1.0)"
+    )
+    g.add_argument(
+        "--prediction-seconds", 
+        type=float, 
+        default=3.0, 
+        help="Duration of the prediction chunk in seconds (default: 3.0)"
+    )
+    g.add_argument(
+        "--warmup-seconds", 
+        type=float, 
+        default=1.0, 
+        help="Duration of the initial context generation in seconds (default: 1.0)"
+    )
+    g.add_argument(
+        "--max-distill-seconds", 
+        type=float, 
+        default=12.0, 
+        help="Maximum duration of the sequential distillation chain in seconds (default: 12.0)"
+    )
+    g.add_argument(
+        "--teacher-variant", 
+        type=str, 
+        default="xl_turbo",
+        help="Model variant for the frozen Teacher (default: xl_turbo)"
+    )
+    g.add_argument(
+        "--use-wandb", 
+        action=argparse.BooleanOptionalAction, 
+        default=False, 
+        help="Enable Weights & Biases logging (default: False)"
+    )
+    g.add_argument(
+        "--data-free",
+        action="store_true",
+        default=False,
+        help="Train from prompts only and synthesize teacher trajectories online",
+    )
+    g.add_argument(
+        "--prompt-file",
+        type=str,
+        default=None,
+        help="Prompt source for --data-free mode (.txt, .json, .jsonl, or directory)",
+    )

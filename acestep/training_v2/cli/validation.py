@@ -45,8 +45,18 @@ def validate_paths(args: argparse.Namespace) -> bool:
 
     # Dataset dir
     ds_dir = getattr(args, "dataset_dir", None)
-    if ds_dir is not None and not Path(ds_dir).is_dir():
+    if ds_dir and not Path(ds_dir).is_dir():
         print(f"[FAIL] Dataset directory not found: {ds_dir}", file=sys.stderr)
+        return False
+
+    prompt_file = getattr(args, "prompt_file", None)
+    if prompt_file and not Path(prompt_file).exists():
+        print(f"[FAIL] Prompt source not found: {prompt_file}", file=sys.stderr)
+        return False
+
+    dataset_json = getattr(args, "dataset_json", None)
+    if dataset_json and not Path(dataset_json).is_file():
+        print(f"[FAIL] Dataset JSON not found: {dataset_json}", file=sys.stderr)
         return False
 
     # Resume path

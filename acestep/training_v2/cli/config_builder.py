@@ -186,6 +186,8 @@ def build_configs(args: argparse.Namespace) -> Tuple[AdapterConfig, TrainingConf
         dataset_json=args.dataset_json,
         tensor_output=args.tensor_output,
         max_duration=args.max_duration,
+        data_free=getattr(args, "data_free", False),
+        prompt_file=getattr(args, "prompt_file", None),
     )
 
     return adapter_cfg, train_cfg

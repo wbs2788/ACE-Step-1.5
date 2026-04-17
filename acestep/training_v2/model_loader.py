@@ -14,6 +14,7 @@ from __future__ import annotations
 import gc
 import json
 import logging
+import os
 from pathlib import Path
 from typing import Any, Dict, Optional, Tuple
 
@@ -98,6 +99,28 @@ def _resolve_dtype(precision: str) -> torch.dtype:
     return mapping.get(precision, torch.bfloat16)
 
 
+def _ensure_writable_transformers_cache(checkpoint_dir: str | Path) -> None:
+    """Route Transformers dynamic module cache to a writable project path."""
+    env_cache = os.environ.get("HF_MODULES_CACHE")
+    if env_cache:
+        cache_dir = Path(env_cache)
+    else:
+        cache_dir = Path(checkpoint_dir) / ".hf_modules_cache"
+        os.environ["HF_MODULES_CACHE"] = str(cache_dir)
+    cache_dir.mkdir(parents=True, exist_ok=True)
+
+    # Transformers resolves HF_MODULES_CACHE at import time. Patch the loaded
+    # modules too so sandboxed runs do not try to write into the user's home.
+    try:
+        import transformers.dynamic_module_utils as dynamic_module_utils
+        import transformers.utils.hub as hub
+
+        dynamic_module_utils.HF_MODULES_CACHE = str(cache_dir)
+        hub.HF_MODULES_CACHE = str(cache_dir)
+    except ImportError:
+        pass
+
+
 def read_model_config(checkpoint_dir: str | Path, variant: str) -> Dict[str, Any]:
     """Read and return the model ``config.json`` as a dict.
 
@@ -136,6 +159,7 @@ def load_decoder_for_training(
     Returns:
         The loaded ``AceStepConditionGenerationModel`` instance.
     """
+    _ensure_writable_transformers_cache(checkpoint_dir)
     from transformers import AutoModel
 
     model_dir = _resolve_model_dir(checkpoint_dir, variant)
