@@ -1,0 +1,21 @@
+python -m acestep.training_v2.cli.train_consistency \
+        --plain \
+        --yes consistency \
+        --checkpoint-dir checkpoints \
+        --model-variant xl_turbo \
+        --teacher-variant xl_turbo \
+        --output-dir /tmp/ace-distill-smoke \
+        --data-free \
+        --prompt-file prompt \
+        --batch-size 1 \
+        --epochs 1 \
+        --gradient-accumulation 1 \
+        --warmup-seconds 30 \
+        --prediction-seconds 30 \
+        --max-distill-seconds 150 \
+        --max-distill-chunks 5 \
+        --num-workers 0 \
+        --precision bf16 \
+        --device cuda \
+        --log-every 1 \
+        --log-heavy-every 1000

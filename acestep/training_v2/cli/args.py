@@ -289,6 +289,7 @@ def _add_common_training_args(
     g_train.add_argument("--batch-size", type=int, default=1, help="Training batch size (default: 1)")
     g_train.add_argument("--gradient-accumulation", type=int, default=4, help="Gradient accumulation steps (default: 4)")
     g_train.add_argument("--epochs", type=int, default=100, help="Maximum training epochs (default: 100)")
+    g_train.add_argument("--max-iterations", type=int, default=None, help="Maximum optimizer steps; overrides epoch-based stopping when set")
     g_train.add_argument("--warmup-steps", type=int, default=100, help="LR warmup steps (default: 100)")
     g_train.add_argument("--weight-decay", type=float, default=0.01, help="AdamW weight decay (default: 0.01)")
     g_train.add_argument("--max-grad-norm", type=float, default=1.0, help="Gradient clipping norm (default: 1.0)")

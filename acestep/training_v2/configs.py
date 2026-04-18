@@ -120,6 +120,9 @@ class TrainingConfigV2(TrainingConfig):
     """Device for pinned memory ("" = default CUDA device)."""
 
     # --- Optimizer / Scheduler ------------------------------------------------
+    max_iterations: Optional[int] = None
+    """Maximum optimizer steps. When set, training stops by iteration count."""
+
     optimizer_type: str = "adamw"
     """Optimizer: 'adamw', 'adamw8bit', 'adafactor', 'prodigy'."""
 
@@ -261,7 +264,8 @@ class TrainingConfigV2(TrainingConfig):
 
     prompt_file: Optional[str] = None
     """Path to a txt/json/jsonl prompt source used in ``data_free`` mode."""
-
+    
+    use_wandb: bool = False
     # -----------------------------------------------------------------------
     # Helpers
     # -----------------------------------------------------------------------
@@ -283,6 +287,7 @@ class TrainingConfigV2(TrainingConfig):
                 "prefetch_factor": self.prefetch_factor,
                 "persistent_workers": self.persistent_workers,
                 "pin_memory_device": self.pin_memory_device,
+                "max_iterations": self.max_iterations,
                 "optimizer_type": self.optimizer_type,
                 "scheduler_type": self.scheduler_type,
                 "gradient_checkpointing": self.gradient_checkpointing,
@@ -326,6 +331,7 @@ class TrainingConfigV2(TrainingConfig):
                 "teacher_variant": self.teacher_variant,
                 "data_free": self.data_free,
                 "prompt_file": self.prompt_file,
+                "use_wandb": self.use_wandb,
             }
         )
         return base

@@ -8,6 +8,7 @@ and runs the training loop with chunked KV-cache distillation.
 from __future__ import annotations
 
 import logging
+import os
 import random
 import sys
 from pathlib import Path
@@ -146,6 +147,15 @@ class StreamingConsistencyTrainer:
                 adapter_info=adapter_info,
                 lycoris_net=lycoris_net,
             )
+            if cfg.use_wandb and wandb.run is None:
+                wandb.init(
+                    project=os.getenv("WANDB_PROJECT", "acestep-distillation"),
+                    config=cfg.to_dict(),
+                    name=os.getenv(
+                        "WANDB_NAME",
+                        f"{cfg.model_variant}-consistency-{cfg.max_iterations or cfg.max_epochs}",
+                    ),
+                )
             prompt_conditioner: Optional[PromptBatchConditioner] = None
             if cfg.data_free:
                 prompt_conditioner = PromptBatchConditioner(

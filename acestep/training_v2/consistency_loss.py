@@ -15,8 +15,9 @@ def compute_latent_frequency_loss(
     
     # 2. 1D-FFT 振幅 L1 损失 
     # [CRITICAL FIX] 必须使用 norm="forward" 或 "ortho"，防止振幅随时间帧数 T 线性爆炸
-    pred_fft = torch.fft.rfft(pred_x0, dim=1, norm="forward")
-    target_fft = torch.fft.rfft(target_x0, dim=1, norm="forward")
+    # 修改后：强制转为 float32
+    pred_fft = torch.fft.rfft(pred_x0.to(torch.float32), dim=1, norm="forward")
+    target_fft = torch.fft.rfft(target_x0.to(torch.float32), dim=1, norm="forward")
     
     pred_mag = torch.abs(pred_fft)
     target_mag = torch.abs(target_fft)

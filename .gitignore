@@ -260,3 +260,4 @@ docs/en/awesome.md
 package-lock.json
 
 prompt/
+*.zip

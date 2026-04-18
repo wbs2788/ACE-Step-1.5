@@ -126,7 +126,8 @@ def run_basic_training_loop(
     )
 
     steps_per_epoch = max(1, math.ceil(len(train_loader) / cfg.gradient_accumulation_steps))
-    total_steps = steps_per_epoch * cfg.max_epochs
+    max_iterations = getattr(cfg, "max_iterations", None)
+    total_steps = max_iterations or (steps_per_epoch * cfg.max_epochs)
 
     scheduler = build_scheduler(
         optimizer,
@@ -203,8 +204,13 @@ def run_basic_training_loop(
                 if torch.cuda.is_available() and global_step % cfg.log_every == 0:
                     torch.cuda.empty_cache()
 
+                if max_iterations is not None and global_step >= max_iterations:
+                    break
+
         # Flush remainder
-        if accumulation_step > 0:
+        if accumulation_step > 0 and (
+            max_iterations is None or global_step < max_iterations
+        ):
             global_step, avg_loss, updates = _flush_accumulated(
                 trainable_params, optimizer, scheduler,
                 accumulated_loss, accumulation_step, cfg, tb, module,
@@ -215,6 +221,14 @@ def run_basic_training_loop(
             num_updates += 1
             accumulated_loss = 0.0
             accumulation_step = 0
+
+        if max_iterations is not None and global_step >= max_iterations:
+            yield TrainingUpdate(
+                step=global_step, loss=epoch_loss / max(num_updates, 1),
+                msg=f"[OK] Reached max iterations ({max_iterations})",
+                kind="complete", epoch=epoch + 1, max_epochs=cfg.max_epochs,
+            )
+            break
 
         epoch_time = time.time() - epoch_start
         avg_epoch_loss = epoch_loss / max(num_updates, 1)

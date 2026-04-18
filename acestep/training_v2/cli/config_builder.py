@@ -141,6 +141,7 @@ def build_configs(args: argparse.Namespace) -> Tuple[AdapterConfig, TrainingConf
         batch_size=args.batch_size,
         gradient_accumulation_steps=args.gradient_accumulation,
         max_epochs=args.epochs,
+        max_iterations=getattr(args, "max_iterations", None),
         warmup_steps=args.warmup_steps,
         weight_decay=args.weight_decay,
         max_grad_norm=args.max_grad_norm,
@@ -201,6 +202,7 @@ def build_configs(args: argparse.Namespace) -> Tuple[AdapterConfig, TrainingConf
         teacher_variant=getattr(args, "teacher_variant", "xl_turbo"),
         data_free=getattr(args, "data_free", False),
         prompt_file=getattr(args, "prompt_file", None),
+        use_wandb=getattr(args, "use_wandb", False),
     )
 
     return adapter_cfg, train_cfg
