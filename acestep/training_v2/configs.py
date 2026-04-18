@@ -250,6 +250,9 @@ class TrainingConfigV2(TrainingConfig):
     max_distill_seconds: float = 12.0
     """Maximum duration of the sequential distillation chain in seconds."""
 
+    max_distill_chunks: Optional[int] = 3
+    """Maximum autoregressive chunks per training sample; None means no cap."""
+
     teacher_variant: str = "xl_turbo"
     """Model variant for the teacher (e.g., 'xl_turbo')."""
 
@@ -317,7 +320,12 @@ class TrainingConfigV2(TrainingConfig):
                 "diff_weight": self.diff_weight,
                 "condition_seconds": self.condition_seconds,
                 "prediction_seconds": self.prediction_seconds,
+                "warmup_seconds": self.warmup_seconds,
+                "max_distill_seconds": self.max_distill_seconds,
+                "max_distill_chunks": self.max_distill_chunks,
                 "teacher_variant": self.teacher_variant,
+                "data_free": self.data_free,
+                "prompt_file": self.prompt_file,
             }
         )
         return base

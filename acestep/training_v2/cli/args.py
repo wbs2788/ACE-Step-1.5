@@ -399,6 +399,15 @@ def _add_consistency_args(parser: argparse.ArgumentParser) -> None:
         help="Maximum duration of the sequential distillation chain in seconds (default: 12.0)"
     )
     g.add_argument(
+        "--max-distill-chunks",
+        type=int,
+        default=3,
+        help=(
+            "Maximum autoregressive chunks per sample; 0 disables the cap "
+            "(default: 3)"
+        ),
+    )
+    g.add_argument(
         "--teacher-variant", 
         type=str, 
         default="xl_turbo",

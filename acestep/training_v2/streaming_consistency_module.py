@@ -64,6 +64,8 @@ class StreamingConsistencyModule(nn.Module):
         
         # Compatibility attribute for basic training loop
         self.model = student
+        self.force_input_grads_for_checkpointing = False
+        self.training_losses: list[float] = []
         
         self.warmup_frames = int(warmup_seconds * fps)
         self.prediction_frames = int(prediction_seconds * fps)
@@ -198,9 +200,12 @@ class StreamingConsistencyModule(nn.Module):
             # Predict num_chunks based on prediction_seconds
             step_frames = self.prediction_frames
             num_chunks = max(1, self.max_distill_frames // step_frames)
-            num_chunks = min(3, num_chunks) # Cap to 3 for VRAM stability
+            max_distill_chunks = getattr(self.training_config, "max_distill_chunks", 3)
+            if max_distill_chunks is not None:
+                num_chunks = min(max_distill_chunks, num_chunks)
             
             curr_start = self.warmup_frames
+            completed_chunks = 0
             for _ in range(num_chunks):
                 curr_end = curr_start + self.prediction_frames
                 if curr_end > full_att_mask.shape[1]: break
@@ -229,8 +234,12 @@ class StreamingConsistencyModule(nn.Module):
                     )
                 
                 # B. Student Path (1-step)
+                student_xt = xt
+                if self.force_input_grads_for_checkpointing:
+                    student_xt = student_xt.requires_grad_(True)
+
                 student_outputs = self.student.decoder(
-                    hidden_states=xt,
+                    hidden_states=student_xt,
                     timestep=t, timestep_r=t,
                     attention_mask=chunk_mask,
                     encoder_hidden_states=encoder_hidden_states,
@@ -240,7 +249,7 @@ class StreamingConsistencyModule(nn.Module):
                     past_key_values=student_pkv, # Updated in-place or returned? (Standard Cache is in-place)
                 )
                 v_pred = student_outputs[0]
-                pred_x0 = xt - t_expand * v_pred
+                pred_x0 = student_xt - t_expand * v_pred
                 # In-place cache update means student_pkv now contains the state after this chunk.
                 # However, for consistency we use Teacher's updated PKV to force the "True" trajectory
                 # in the next block. (Self-forcing/Teacher-forcing transition)
@@ -257,11 +266,15 @@ class StreamingConsistencyModule(nn.Module):
                 total_loss_diff += losses["loss_diff"]
                 
                 curr_start = curr_end
+                completed_chunks += 1
                 
             # Average losses
+            divisor = max(1, completed_chunks)
+            loss_total = (total_loss_time + total_loss_freq + total_loss_diff) / divisor
+            self.training_losses.append(loss_total.detach().float().item())
             return {
-                "loss_total": (total_loss_time + total_loss_freq + total_loss_diff) / num_chunks,
-                "loss_time_mse": total_loss_time / num_chunks,
-                "loss_freq_l1": total_loss_freq / num_chunks,
-                "loss_diff": total_loss_diff / num_chunks,
+                "loss_total": loss_total,
+                "loss_time_mse": total_loss_time / divisor,
+                "loss_freq_l1": total_loss_freq / divisor,
+                "loss_diff": total_loss_diff / divisor,
             }

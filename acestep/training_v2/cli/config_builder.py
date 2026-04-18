@@ -186,6 +186,19 @@ def build_configs(args: argparse.Namespace) -> Tuple[AdapterConfig, TrainingConf
         dataset_json=args.dataset_json,
         tensor_output=args.tensor_output,
         max_duration=args.max_duration,
+        # Consistency distillation
+        fft_weight=getattr(args, "fft_weight", 1.0),
+        diff_weight=getattr(args, "diff_weight", 1.0),
+        condition_seconds=getattr(args, "condition_seconds", 1.0),
+        prediction_seconds=getattr(args, "prediction_seconds", 3.0),
+        warmup_seconds=getattr(args, "warmup_seconds", 1.0),
+        max_distill_seconds=getattr(args, "max_distill_seconds", 12.0),
+        max_distill_chunks=(
+            None
+            if getattr(args, "max_distill_chunks", 3) == 0
+            else getattr(args, "max_distill_chunks", 3)
+        ),
+        teacher_variant=getattr(args, "teacher_variant", "xl_turbo"),
         data_free=getattr(args, "data_free", False),
         prompt_file=getattr(args, "prompt_file", None),
     )

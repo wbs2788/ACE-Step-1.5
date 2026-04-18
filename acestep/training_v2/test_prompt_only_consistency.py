@@ -150,6 +150,7 @@ class TestSyntheticBatchHandling(unittest.TestCase):
             max_distill_seconds=1.0,
             fps=4,
         )
+        module.force_input_grads_for_checkpointing = True
         module._generate_teacher_chunk = MagicMock(
             side_effect=[
                 (torch.zeros(1, 4, 64), "warmup-pkv"),
@@ -169,6 +170,7 @@ class TestSyntheticBatchHandling(unittest.TestCase):
         prefix_ctx = module._generate_teacher_chunk.call_args_list[0].args[5]
         self.assertTrue(torch.all(prefix_ctx == 7.0))
         self.assertIn("loss_total", losses)
+        self.assertTrue(losses["loss_total"].requires_grad)
 
 
 if __name__ == "__main__":
