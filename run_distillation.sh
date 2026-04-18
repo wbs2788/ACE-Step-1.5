@@ -39,7 +39,10 @@ python -m acestep.training_v2.cli.train_consistency --yes consistency \
     --fft-weight 1.0 \
     --diff-weight 1.0 \
     --condition-seconds 10.0 \
+    --warmup-seconds 30.0 \
     --prediction-seconds 30.0 \
+    --max-distill-seconds 150.0 \
+    --max-distill-chunks 5 \
     --gradient-checkpointing \
     --use-wandb
 
