@@ -262,3 +262,4 @@ package-lock.json
 prompt/
 *.zip
 wandb
+output

@@ -328,6 +328,7 @@ def _add_common_training_args(
     g_ckpt = parser.add_argument_group("Checkpointing")
     g_ckpt.add_argument("--output-dir", type=str, required=require_output_dir, help="Output directory for LoRA weights")
     g_ckpt.add_argument("--save-every", type=int, default=10, help="Save checkpoint every N epochs (default: 10)")
+    g_ckpt.add_argument("--save-every-steps", type=int, default=0, help="Save checkpoint every N optimizer steps; 0 disables step checkpointing")
     g_ckpt.add_argument("--resume-from", type=str, default=None, help="Path to checkpoint dir to resume from")
 
     # -- Logging / TensorBoard -----------------------------------------------

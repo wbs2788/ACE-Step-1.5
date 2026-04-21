@@ -148,6 +148,7 @@ def build_configs(args: argparse.Namespace) -> Tuple[AdapterConfig, TrainingConf
         seed=args.seed,
         output_dir=args.output_dir,
         save_every_n_epochs=args.save_every,
+        save_every_n_steps=getattr(args, "save_every_steps", 0),
         num_workers=num_workers,
         pin_memory=args.pin_memory,
         prefetch_factor=prefetch_factor,

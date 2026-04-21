@@ -193,6 +193,7 @@ class StreamingConsistencyModule(nn.Module):
             student_pkv = copy.deepcopy(teacher_pkv)
             
             # 3. Sequential Distillation Loop
+            total_loss = torch.tensor(0.0, device=self.device, dtype=self.dtype)
             total_loss_time = torch.tensor(0.0, device=self.device, dtype=self.dtype)
             total_loss_freq = torch.tensor(0.0, device=self.device, dtype=self.dtype)
             total_loss_diff = torch.tensor(0.0, device=self.device, dtype=self.dtype)
@@ -261,6 +262,7 @@ class StreamingConsistencyModule(nn.Module):
                     fft_weight=getattr(self.training_config, "fft_weight", 1.0),
                     diff_weight=getattr(self.training_config, "diff_weight", 1.0)
                 )
+                total_loss += losses["loss_total"]
                 total_loss_time += losses["loss_time_mse"]
                 total_loss_freq += losses["loss_freq_l1"]
                 total_loss_diff += losses["loss_diff"]
@@ -270,7 +272,7 @@ class StreamingConsistencyModule(nn.Module):
                 
             # Average losses
             divisor = max(1, completed_chunks)
-            loss_total = (total_loss_time + total_loss_freq + total_loss_diff) / divisor
+            loss_total = total_loss / divisor
             self.training_losses.append(loss_total.detach().float().item())
             return {
                 "loss_total": loss_total,

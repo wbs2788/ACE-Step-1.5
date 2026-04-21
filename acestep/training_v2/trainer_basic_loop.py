@@ -78,6 +78,29 @@ def _flush_accumulated(
     return global_step, avg_loss, updates
 
 
+def _save_step_checkpoint(
+    trainer: Any,
+    optimizer: Any,
+    scheduler: Any,
+    output_dir: Path,
+    epoch: int,
+    global_step: int,
+    avg_loss: float,
+) -> TrainingUpdate:
+    """Save a resumable checkpoint for the current optimizer step."""
+    ckpt_dir = str(output_dir / "checkpoints" / f"step_{global_step}_loss_{avg_loss:.4f}")
+    save_checkpoint(trainer, optimizer, scheduler, epoch + 1, global_step, ckpt_dir)
+    return TrainingUpdate(
+        step=global_step,
+        loss=avg_loss,
+        msg=f"[OK] Checkpoint saved at step {global_step}",
+        kind="checkpoint",
+        epoch=epoch + 1,
+        max_epochs=trainer.training_config.max_epochs,
+        checkpoint_path=ckpt_dir,
+    )
+
+
 # ---------------------------------------------------------------------------
 # Main loop
 # ---------------------------------------------------------------------------
@@ -201,6 +224,13 @@ def run_basic_training_loop(
                 accumulated_loss = 0.0
                 accumulation_step = 0
 
+                save_every_steps = getattr(cfg, "save_every_n_steps", 0)
+                if save_every_steps and global_step % save_every_steps == 0:
+                    yield _save_step_checkpoint(
+                        trainer, optimizer, scheduler, output_dir,
+                        epoch, global_step, avg_loss,
+                    )
+
                 if torch.cuda.is_available() and global_step % cfg.log_every == 0:
                     torch.cuda.empty_cache()
 
@@ -221,6 +251,13 @@ def run_basic_training_loop(
             num_updates += 1
             accumulated_loss = 0.0
             accumulation_step = 0
+
+            save_every_steps = getattr(cfg, "save_every_n_steps", 0)
+            if save_every_steps and global_step % save_every_steps == 0:
+                yield _save_step_checkpoint(
+                    trainer, optimizer, scheduler, output_dir,
+                    epoch, global_step, avg_loss,
+                )
 
         if max_iterations is not None and global_step >= max_iterations:
             yield TrainingUpdate(
