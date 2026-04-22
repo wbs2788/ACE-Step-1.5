@@ -4,6 +4,7 @@
 from __future__ import annotations
 
 import argparse
+import os
 from pathlib import Path
 
 import pandas as pd
@@ -11,7 +12,7 @@ from tqdm import tqdm
 
 from acestep.handler import AceStepHandler
 from acestep.inference import GenerationConfig, GenerationParams, generate_music
-from acestep.llm_handler import LLMHandler
+from acestep.llm_inference import LLMHandler
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -48,6 +49,14 @@ def build_parser() -> argparse.ArgumentParser:
 
 def init_runtime(args: argparse.Namespace) -> tuple[AceStepHandler, LLMHandler]:
     """Initialize handler and load the trained LoRA adapter."""
+    checkpoint_dir = Path(args.checkpoint_dir).resolve()
+    lora_path = Path(args.lora_path).resolve()
+    if not checkpoint_dir.exists():
+        raise FileNotFoundError(f"Checkpoint directory not found: {checkpoint_dir}")
+    if not lora_path.exists():
+        raise FileNotFoundError(f"LoRA path not found: {lora_path}")
+    os.environ["ACESTEP_CHECKPOINTS_DIR"] = str(checkpoint_dir)
+
     dit_handler = AceStepHandler()
     llm_handler = LLMHandler()
 
@@ -60,7 +69,7 @@ def init_runtime(args: argparse.Namespace) -> tuple[AceStepHandler, LLMHandler]:
         offload_to_cpu=args.offload_to_cpu,
         offload_dit_to_cpu=False,
     )
-    print(dit_handler.load_lora(args.lora_path))
+    print(dit_handler.load_lora(str(lora_path)))
     print(dit_handler.set_lora_scale(args.lora_scale))
     print(dit_handler.set_use_lora(True))
     return dit_handler, llm_handler

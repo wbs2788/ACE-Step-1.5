@@ -4,11 +4,12 @@
 from __future__ import annotations
 
 import argparse
+import os
 from pathlib import Path
 
 from acestep.handler import AceStepHandler
 from acestep.inference import GenerationConfig, GenerationParams, generate_music
-from acestep.llm_handler import LLMHandler
+from acestep.llm_inference import LLMHandler
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -50,6 +51,15 @@ def main() -> int:
 
     save_dir = Path(args.save_dir)
     save_dir.mkdir(parents=True, exist_ok=True)
+    checkpoint_dir = Path(args.checkpoint_dir).resolve()
+    lora_path = Path(args.lora_path).resolve()
+
+    if not checkpoint_dir.exists():
+        raise FileNotFoundError(f"Checkpoint directory not found: {checkpoint_dir}")
+    if not lora_path.exists():
+        raise FileNotFoundError(f"LoRA path not found: {lora_path}")
+
+    os.environ["ACESTEP_CHECKPOINTS_DIR"] = str(checkpoint_dir)
 
     dit_handler = AceStepHandler()
     llm_handler = LLMHandler()
@@ -64,7 +74,7 @@ def main() -> int:
         offload_dit_to_cpu=False,
     )
 
-    load_msg = dit_handler.load_lora(args.lora_path)
+    load_msg = dit_handler.load_lora(str(lora_path))
     print(load_msg)
     scale_msg = dit_handler.set_lora_scale(args.lora_scale)
     print(scale_msg)

@@ -305,10 +305,9 @@ SUBMODEL_REGISTRY: Dict[str, str] = {
 
 # Components that come from the main model repo (ACE-Step/Ace-Step1.5)
 MAIN_MODEL_COMPONENTS = [
-    "acestep-v15-turbo",      # Default DiT model
+    # "acestep-v15-turbo",      # Default DiT model
     "vae",                     # VAE for audio encoding/decoding
     "Qwen3-Embedding-0.6B",    # Text encoder
-    "acestep-5Hz-lm-1.7B",     # Default LM model (1.7B)
 ]
 
 # Default LM model (included in main model)
