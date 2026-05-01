@@ -1,0 +1,58 @@
+subfolder,audio_dir,status,num_wavs,expected_num_wavs,missing_num_wavs,coverage,clap_score,passt_kld,openl3_fd,started_at_utc,finished_at_utc,duration_sec,note
+v1_chunk1_chunk_1_step_1,/data/liaoyue/tcwbs/output/songdescriber_filtered/v1_chunk1_chunk_1_step_1,error,279,279,0,1.0,,,,2026-04-27T17:31:44.411102+00:00,2026-04-27T17:49:03.548042+00:00,1039.137,"Graph execution error:
+
+Detected at node model_1/batch_normalization/FusedBatchNormV3 defined at (most recent call last):
+  File ""/data/liaoyue/tcwbs/stable-audio-metrics/examples/songdescriber_nosinging_no-audio_batch.py"", line 246, in <module>
+
+  File ""/data/liaoyue/tcwbs/stable-audio-metrics/examples/songdescriber_nosinging_no-audio_batch.py"", line 226, in main
+
+  File ""/data/liaoyue/tcwbs/stable-audio-metrics/examples/songdescriber_nosinging_no-audio_batch.py"", line 144, in evaluate_subfolder
+
+  File ""/data/liaoyue/tcwbs/stable-audio-metrics/src/openl3_fd.py"", line 296, in openl3_fd
+
+  File ""/data/liaoyue/tcwbs/stable-audio-metrics/src/openl3_fd.py"", line 134, in extract_embeddings
+
+  File ""/root/miniforge3/envs/metric/lib/python3.9/site-packages/openl3/core.py"", line 277, in get_audio_embedding
+
+  File ""/root/miniforge3/envs/metric/lib/python3.9/site-packages/keras/src/utils/traceback_utils.py"", line 65, in error_handler
+
+  File ""/root/miniforge3/envs/metric/lib/python3.9/site-packages/keras/src/engine/training.py"", line 2655, in predict
+
+  File ""/root/miniforge3/envs/metric/lib/python3.9/site-packages/keras/src/engine/training.py"", line 2440, in predict_function
+
+  File ""/root/miniforge3/envs/metric/lib/python3.9/site-packages/keras/src/engine/training.py"", line 2425, in step_function
+
+  File ""/root/miniforge3/envs/metric/lib/python3.9/site-packages/keras/src/engine/training.py"", line 2413, in run_step
+
+  File ""/root/miniforge3/envs/metric/lib/python3.9/site-packages/keras/src/engine/training.py"", line 2381, in predict_step
+
+  File ""/root/miniforge3/envs/metric/lib/python3.9/site-packages/keras/src/utils/traceback_utils.py"", line 65, in error_handler
+
+  File ""/root/miniforge3/envs/metric/lib/python3.9/site-packages/keras/src/engine/training.py"", line 590, in __call__
+
+  File ""/root/miniforge3/envs/metric/lib/python3.9/site-packages/keras/src/utils/traceback_utils.py"", line 65, in error_handler
+
+  File ""/root/miniforge3/envs/metric/lib/python3.9/site-packages/keras/src/engine/base_layer.py"", line 1149, in __call__
+
+  File ""/root/miniforge3/envs/metric/lib/python3.9/site-packages/keras/src/utils/traceback_utils.py"", line 96, in error_handler
+
+  File ""/root/miniforge3/envs/metric/lib/python3.9/site-packages/keras/src/engine/functional.py"", line 515, in call
+
+  File ""/root/miniforge3/envs/metric/lib/python3.9/site-packages/keras/src/engine/functional.py"", line 672, in _run_internal_graph
+
+  File ""/root/miniforge3/envs/metric/lib/python3.9/site-packages/keras/src/utils/traceback_utils.py"", line 65, in error_handler
+
+  File ""/root/miniforge3/envs/metric/lib/python3.9/site-packages/keras/src/engine/base_layer.py"", line 1149, in __call__
+
+  File ""/root/miniforge3/envs/metric/lib/python3.9/site-packages/keras/src/utils/traceback_utils.py"", line 96, in error_handler
+
+  File ""/root/miniforge3/envs/metric/lib/python3.9/site-packages/keras/src/layers/normalization/batch_normalization.py"", line 597, in call
+
+  File ""/root/miniforge3/envs/metric/lib/python3.9/site-packages/keras/src/layers/normalization/batch_normalization.py"", line 990, in _fused_batch_norm
+
+  File ""/root/miniforge3/envs/metric/lib/python3.9/site-packages/keras/src/utils/control_flow_util.py"", line 108, in smart_cond
+
+  File ""/root/miniforge3/envs/metric/lib/python3.9/site-packages/keras/src/layers/normalization/batch_normalization.py"", line 979, in _fused_batch_norm_inference
+
+cuDNN launch failure : input shape ([4,256,199,1])
+	 [[{{node model_1/batch_normalization/FusedBatchNormV3}}]] [Op:__inference_predict_function_1336]"

@@ -1,0 +1,25 @@
+{
+  "metadata": {
+    "tag_position": "prepend",
+    "genre_ratio": 0,
+    "custom_tag": ""
+  },
+  "samples": [
+    {
+      "filename": "Yuting Wu - 05 - Ankahuangmin (Draft Master v1).wav",
+      "audio_path": "Yuting Wu - 05 - Ankahuangmin (Draft Master v1).wav",
+      "caption": "Experimental electronic track with a heavy glitch aesthetic and an eerie, uncanny atmosphere. Incorporates electroacoustic elements like manipulated real-world recordings and found sounds. Features stuttering digital artifacts, granular synthesis, and dissonant, haunting textures. The rhythm is sporadic and unpredictable, layered over a dark ambient backdrop with sharp, cold sonic clicks and distorted echoes. Cinematic, unsettling, and avant-garde.",
+      "lyrics": "[Instrumental]",
+      "genre": "experimental electronic glitch ambient",
+      "is_instrumental": true
+    },
+    {
+      "filename": "liveset maxxxx9.15.ver.wav",
+      "audio_path": "liveset maxxxx9.15.ver.wav",
+      "caption": "Experimental electronic track with a heavy glitch aesthetic and an eerie, uncanny atmosphere. Incorporates electroacoustic elements like manipulated real-world recordings and found sounds. Features stuttering digital artifacts, granular synthesis, and dissonant, haunting textures. The rhythm is sporadic and unpredictable, layered over a dark ambient backdrop with sharp, cold sonic clicks and distorted echoes. Cinematic, unsettling, and avant-garde.",
+      "lyrics": "[Instrumental]",
+      "genre": "experimental electronic glitch ambient",
+      "is_instrumental": true
+    }
+  ]
+}

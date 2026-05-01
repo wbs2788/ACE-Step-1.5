@@ -1,0 +1,499 @@
+\documentclass[11pt]{article}
+\usepackage[T1]{fontenc}
+\usepackage[utf8]{inputenc}
+\usepackage{amsmath,amssymb}
+\usepackage{booktabs}
+\usepackage{array}
+\usepackage{multirow}
+\usepackage{longtable}
+\usepackage{tabularx}
+\usepackage{graphicx}
+\usepackage{xcolor}
+\usepackage{geometry}
+\usepackage{hyperref}
+\usepackage{enumitem}
+\usepackage{listings}
+\usepackage{float}
+\usepackage{caption}
+
+\geometry{margin=1in}
+\hypersetup{hidelinks}
+\setlist[itemize]{leftmargin=1.5em}
+\setlist[enumerate]{leftmargin=1.75em}
+\captionsetup{font=small}
+
+\definecolor{LightBluePurple}{HTML}{E8E8FF}
+\definecolor{CodeGray}{RGB}{248,248,248}
+
+\lstset{
+  basicstyle=\ttfamily\small,
+  backgroundcolor=\color{CodeGray},
+  frame=single,
+  breaklines=true,
+  columns=fullflexible,
+  keepspaces=true
+}
+
+\title{\textbf{Supplementary Material}\\Real-Time Interactive Music Generation via Data-Free Streaming Consistency Distillation}
+\author{}
+\date{}
+
+\begin{document}
+
+\maketitle
+
+\section{Purpose and Scope}
+
+This supplementary document expands the implementation, evaluation, and usage details of the main paper. It is intended to support three goals:
+\begin{itemize}
+    \item \textbf{Reproducibility}: to document the exact training, inference, and latency-benchmark settings used in the reported experiments.
+    \item \textbf{Interpretability}: to clarify how the proposed system should be understood as a phrase-level interactive instrument, including the control granularity and expected response behavior.
+    \item \textbf{Practical deployment}: to provide concrete guidance for artifact usage, ablation execution, and online performance scenarios.
+\end{itemize}
+
+The supplement is written to be self-contained and compile independently of the main paper. It therefore avoids external bibliography dependencies and focuses on implementation- and protocol-level precision.
+
+\section{System Overview}
+
+The proposed framework converts an offline text-to-music generator into a chunk-wise streaming generator through \emph{data-free streaming consistency distillation}. The system contains two stages:
+\begin{enumerate}
+    \item \textbf{Training-time distillation}: a frozen teacher generates online latent supervision in a prompt-only regime, while a student with LoRA adaptation learns to reproduce teacher targets under a streaming cached-context protocol.
+    \item \textbf{Inference-time streaming playback}: the distilled student generates one chunk at a time, preserves historical context through a KV-cache, and supports high-level musical control while audio continues to play.
+\end{enumerate}
+
+The central design choice is to formulate generation as an \emph{unfolding latent stream} rather than a one-shot full-song render. This distinction matters because interactive playability depends not only on fast sample generation, but also on whether the system can accept new instructions without discarding accumulated context.
+
+\section{Training Details}
+
+\subsection{Backbone and Adapter Configuration}
+
+All experiments build on the ACE-Step 1.5 XL-Turbo text-to-music backbone. The teacher model remains frozen throughout training. The student reuses the same backbone architecture and is adapted through LoRA modules applied to the DiT decoder projections.
+
+\begin{table}[H]
+\centering
+\caption{Core student-training configuration.}
+\label{tab:supp_train_config}
+\begin{tabular}{@{}ll@{}}
+\toprule
+\textbf{Component} & \textbf{Setting} \\
+\midrule
+Backbone & ACE-Step 1.5 XL-Turbo \\
+Teacher update & Frozen \\
+Student update & LoRA-only \\
+LoRA target & DiT decoder attention projections \\
+LoRA rank & 64 \\
+LoRA scaling factor & 128 \\
+Precision & bf16 \\
+Optimizer & AdamW \\
+Batch size & 32 \\
+Gradient accumulation & 1 \\
+Learning rate & \(1\times10^{-4}\) \\
+Warm-up steps & 100 \\
+Weight decay & 0.01 \\
+Gradient clipping & 1.0 \\
+Maximum optimization steps & 2,000 \\
+Seed & 42 \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+The student uses the same latent dimensionality as the base model. In the released implementation, the student latent tensor is shaped \([B, T, 64]\), while the context tensor concatenates source latents and chunk masks to form a \([B, T, 128]\) context representation.
+
+\subsection{Streaming Distillation Regime}
+
+The distillation schedule used in the paper is configured around long-form chunk-wise supervision:
+\begin{itemize}
+    \item warm-up duration: 30 seconds,
+    \item prediction chunk duration: 30 seconds,
+    \item maximum predicted chunks: 5,
+    \item maximum prediction horizon after warm-up: 150 seconds,
+    \item total trajectory length during distillation: 180 seconds.
+\end{itemize}
+
+The latent frame rate is 50 frames per second. Therefore,
+\[
+T_{\mathrm{warm}} = 30 \times 50 = 1500,\qquad
+T_{\mathrm{pred}} = 30 \times 50 = 1500.
+\]
+With \(K=5\) predicted chunks, the total predicted latent length after warm-up is
+\[
+K \cdot T_{\mathrm{pred}} = 5 \times 1500 = 7500 \text{ frames}.
+\]
+
+\subsection{Teacher Schedule and Student Target}
+
+The teacher follows the native XL-Turbo sampling schedule:
+\[
+[1.0,\ 0.9545,\ 0.9,\ 0.8333,\ 0.75,\ 0.6428,\ 0.5,\ 0.3,\ 0.0].
+\]
+At each training chunk, the teacher integrates from a noisy latent point toward the clean target latent using the multi-step schedule above. The student is then optimized to map the corresponding noisy latent and context state to the teacher's target in a single step.
+
+In the synthetic prompt-only regime, the chunk input is initialized directly from Gaussian noise. This creates a fully data-free teacher rollout:
+\[
+x_t \sim \mathcal{N}(0, I),\qquad
+\hat{z}_T^{(k)} = f_T(x_t, p, c_T^{(k-1)}; N).
+\]
+The student predicts
+\[
+\hat{z}_S^{(k)} = f_S(x_t, p, c_T^{(k-1)}; 1).
+\]
+
+\subsection{Chunk-Wise Teacher-Student Interaction}
+
+Training proceeds in the following order:
+\begin{enumerate}
+    \item \textbf{Condition construction}: build text and lyric conditioning tensors from the prompt.
+    \item \textbf{Warm-up rollout}: synthesize a warm-up segment and obtain the initial teacher cache state.
+    \item \textbf{Chunk loop}: for each prediction chunk, sample noise, generate a teacher target chunk, run a one-step student prediction, compute the loss, and update the teacher state.
+    \item \textbf{Cache handling}: the student is trained against the teacher's evolving context trajectory rather than being forced to rely only on its own imperfect past during training.
+\end{enumerate}
+
+This teacher-guided chunk-wise regime is important because it anchors the student to a coherent historical stream and reduces the risk of compounding errors over long continuations.
+
+\section{Objective Functions and Ablation Setup}
+
+\subsection{Loss Definitions}
+
+For each chunk \(k\), the student is supervised by a combination of three latent-space objectives:
+\begin{align}
+\mathcal{L}_{\mathrm{latent}}^{(k)} &= \left\|\hat{z}_S^{(k)} - \hat{z}_T^{(k)}\right\|_2^2, \\
+\mathcal{L}_{\mathrm{spec}}^{(k)} &= \left\|\, |\mathcal{F}(\hat{z}_S^{(k)})| - |\mathcal{F}(\hat{z}_T^{(k)})| \,\right\|_1, \\
+\mathcal{L}_{\mathrm{temp}}^{(k)} &= \left\| \Delta \hat{z}_S^{(k)} - \Delta \hat{z}_T^{(k)} \right\|_1.
+\end{align}
+
+The final chunk loss is
+\[
+\mathcal{L}^{(k)} =
+\lambda_{\mathrm{latent}} \mathcal{L}_{\mathrm{latent}}^{(k)} +
+\lambda_{\mathrm{spec}} \mathcal{L}_{\mathrm{spec}}^{(k)} +
+\lambda_{\mathrm{temp}} \mathcal{L}_{\mathrm{temp}}^{(k)}.
+\]
+In all experiments, \(\lambda_{\mathrm{latent}} = 1\). The ablation variants correspond to binary activation of the auxiliary objectives.
+
+\begin{table}[H]
+\centering
+\caption{Loss ablation settings used in the paper.}
+\label{tab:supp_loss_variants}
+\begin{tabular}{@{}lccc@{}}
+\toprule
+\textbf{Variant} & \(\lambda_{\mathrm{latent}}\) & \(\lambda_{\mathrm{spec}}\) & \(\lambda_{\mathrm{temp}}\) \\
+\midrule
+Latent only & 1 & 0 & 0 \\
+Latent + spectral & 1 & 1 & 0 \\
+Latent + temporal & 1 & 0 & 1 \\
+Full & 1 & 1 & 1 \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+\subsection{Interpretation of the Auxiliary Terms}
+
+The auxiliary terms are not waveform-domain losses; they operate directly on latent chunks. This design is intentional:
+\begin{itemize}
+    \item the \textbf{spectral term} preserves latent frequency structure without incurring a full VAE decode during training,
+    \item the \textbf{temporal-difference term} encourages sharper local transitions, which empirically helps rhythmic and transient stability,
+    \item the \textbf{latent term} remains the anchoring objective that prevents the auxiliary losses from drifting away from the teacher trajectory.
+\end{itemize}
+
+\section{Inference Modes}
+
+\subsection{Standard Non-Streaming Inference}
+
+The non-streaming baseline follows the standard ACE-Step inference interface. A single \texttt{generate\_music} call is issued per prompt, and playback begins only after the complete output is produced. The main variable in this mode is the denoising budget \(S\), with the paper reporting \(S\in\{1,4,8\}\).
+
+\subsection{Streaming Inference}
+
+The streaming student follows the training-time chunk structure, but the inference protocol is designed for continuous playback. At runtime:
+\begin{enumerate}
+    \item the system receives a prompt and prepares text conditioning;
+    \item a warm-up chunk is generated to establish a cache state;
+    \item subsequent chunks are generated one by one while preserving the cache;
+    \item newly generated chunks can be influenced by control updates without restarting the entire generation.
+\end{enumerate}
+
+The core one-step streaming update uses the velocity parameterization
+\[
+\hat{z}_S^{(k)} = z_t^{(k)} - t \cdot v_{\mathrm{pred}}^{(k)}.
+\]
+In the current implementation, \(t=1\) and one decoder forward pass is used per predicted chunk.
+
+\subsection{Training Chunk Versus Online Control Chunk}
+
+Two chunk notions appear in the paper and should be distinguished carefully:
+\begin{itemize}
+    \item \textbf{distillation chunk length}: the chunk duration used during teacher-student training (30-second prediction chunks in the reported training setup),
+    \item \textbf{online control chunk length} \(C_{\mathrm{sec}}\): the front-end playback/control update window used in the latency study (0.5, 1.0, 1.5, and 2.0 seconds in Table~\ref{tab:supp_latency_defs}).
+\end{itemize}
+
+The first determines the supervision horizon during training. The second determines how frequently performer interventions can affect subsequent playback in the online system. These two quantities play different roles and need not be numerically identical.
+
+\section{Latency Protocol}
+
+\subsection{Reported Metrics}
+
+\begin{table}[H]
+\centering
+\caption{Latency metrics used in the paper.}
+\label{tab:supp_latency_defs}
+\begin{tabularx}{\textwidth}{@{}lX@{}}
+\toprule
+\textbf{Metric} & \textbf{Definition} \\
+\midrule
+TTFA & Time to first audible audio chunk from the start of a generation request. \\
+RTF & Real-time factor, computed as generation time divided by generated audio duration. Lower is better. \\
+Control latency & Delay between a control update becoming available and the corresponding audible effect. In the paper this is estimated as the playback chunk duration plus the average prediction-chunk latency. \\
+First chunk latency & Time required to produce the initial chunk in streaming mode. \\
+Prediction chunk latency & Time required to produce one subsequent streaming chunk. \\
+\bottomrule
+\end{tabularx}
+\end{table}
+
+\subsection{Benchmark Environment}
+
+All latency measurements are performed on a single NVIDIA H200 GPU with batch size 1. The benchmark subset contains 10 prompts sampled from a filtered 279-item instrumental SongDescriber benchmark, and each prompt is repeated three times, yielding 30 runs per condition.
+
+The benchmark excludes disk I/O from the core timing path when measuring standard inference. Streaming timings include decode time in the reported total-time quantities because the interactive playback claim concerns audible output, not latent-only generation.
+
+\subsection{Control-Latency Estimation}
+
+The paper reports control latency through an online scheduling model:
+\[
+L_{\mathrm{control}} \approx C_{\mathrm{sec}} + \bar{L}_{\mathrm{pred}},
+\]
+where \(C_{\mathrm{sec}}\) is the playback/control chunk duration and \(\bar{L}_{\mathrm{pred}}\) is the mean prediction-chunk latency. This reflects the fact that a control update normally becomes audible only after the currently playing chunk has finished and the subsequent chunk has been synthesized.
+
+This estimate is deliberately conservative for phrase-level interaction. It does \emph{not} claim note-level or sub-frame control.
+
+\subsection{Latency-Measurement Implementation}
+
+The codebase includes a dedicated latency benchmark utility that records:
+\begin{itemize}
+    \item wall-clock total time,
+    \item pipeline total time (when available from the generation interface),
+    \item diffusion time,
+    \item VAE decode time,
+    \item conditioning time for streaming mode,
+    \item first-chunk latency,
+    \item average prediction-chunk latency,
+    \item RTF.
+\end{itemize}
+
+The benchmark scripts introduced for this work are listed in Section~\ref{sec:artifact_files}.
+
+\section{Objective Evaluation Protocol}
+
+\subsection{Dataset and Generation Volume}
+
+Objective evaluation uses the filtered SongDescriber benchmark with 279 instrumental prompts. All rows in the objective tables are evaluated on full generated outputs for all 279 prompts under the corresponding condition. This differs from the latency evaluation subset, which uses 10 prompts repeated three times to probe runtime variability more efficiently.
+
+\subsection{Metric Suite}
+
+The paper reports three objective metrics:
+\begin{itemize}
+    \item \textbf{CLAP score}: text-audio semantic alignment.
+    \item \textbf{PaSST-KLD}: divergence in music-tagging distributions.
+    \item \textbf{OpenL3-FD}: Fr\'echet distance in a perceptual acoustic embedding space.
+\end{itemize}
+
+The reported evaluation follows a fixed preprocessing pipeline:
+\begin{itemize}
+    \item peak normalization of generated audio,
+    \item CLAP evaluation at 48 kHz,
+    \item PaSST-KLD with 10-second windows and 5-second overlap,
+    \item OpenL3-FD on full-audio embeddings.
+\end{itemize}
+
+\subsection{Why Multiple Metrics Are Needed}
+
+No single metric captures all aspects of music generation quality in this setting. CLAP reflects prompt relevance, but not necessarily acoustic realism; FD-style distances capture global perceptual similarity, but not direct text alignment; PaSST-KLD tracks tag-space statistics, which are informative for distributional plausibility but less sensitive to some transient artifacts. The joint metric suite is therefore used to triangulate quality under aggressive step reduction and streaming rollout.
+
+\section{Subjective Evaluation Details}
+
+\subsection{Study Design}
+
+The subjective study contains two phases:
+\begin{enumerate}
+    \item \textbf{Passive listening}: participants hear static generated clips and rate overall quality and prompt relevance.
+    \item \textbf{Interactive evaluation}: participants use a steering interface to redirect ongoing generation and rate responsiveness, steerability, and co-creation experience.
+\end{enumerate}
+
+The passive phase measures whether the generated audio remains musically acceptable after distillation. The interactive phase measures whether the system behaves like a useful performance partner.
+
+\subsection{Participants and Reporting}
+
+The paper reports results from 20 participants and presents MOS-style scores with 95\% confidence intervals. Ground-truth audio is included only in passive listening because responsiveness and co-creation are not meaningful for a fixed reference recording.
+
+\subsection{Interpretation of the Interactive Questions}
+
+The three interaction scores used in the paper capture distinct aspects:
+\begin{itemize}
+    \item \textbf{Responsiveness}: whether the system appears to react quickly enough for live use.
+    \item \textbf{Steerability}: whether the user can intentionally shape the musical direction.
+    \item \textbf{Co-creation}: whether the interaction feels like collaborating with a musically meaningful partner rather than merely triggering offline renders.
+\end{itemize}
+
+\subsection{Recommended Questionnaire Prompts}
+
+For reproducibility, the following prompts are recommended in the interactive study:
+\begin{enumerate}
+    \item ``The system responded quickly enough for live interaction.''
+    \item ``I could reliably steer the music toward my intended direction.''
+    \item ``The interaction felt like co-creating music rather than waiting for offline output.''
+\end{enumerate}
+Each can be rated on a five-point Likert scale from strongly disagree (1) to strongly agree (5).
+
+\section{Interactive Instrument Paradigm}
+
+\subsection{Why the System Is an Instrument}
+
+The system is designed as a \emph{phrase-level generative instrument}, not a note-level controller. The user does not specify every onset or pitch. Instead, the performer shapes an \emph{unfolding musical trajectory} through scene cues, arrangement changes, and continuous semantic controls. This interaction model is closer to live coding, modular generative systems, or scene-based electronic performance than to piano-like key actuation.
+
+\subsection{Control Taxonomy}
+
+\begin{table}[H]
+\centering
+\caption{Example control vocabulary for phrase-level performance.}
+\label{tab:supp_controls}
+\begin{tabularx}{\textwidth}{@{}lX@{}}
+\toprule
+\textbf{Control type} & \textbf{Examples} \\
+\midrule
+Scene triggers & intro, build, chorus, breakdown, outro, transition, climax \\
+Continuous energy controls & energy, density, brightness, tension, rhythmic drive, spaciousness \\
+Arrangement controls & add drums, remove bass, reduce texture, add strings, mute vocals, thicken percussion \\
+Direction controls & darker, brighter, more cinematic, more intimate, more aggressive, more sparse \\
+Trajectory controls & hold current mood, intensify, destabilize, restabilize, branch, reset \\
+\bottomrule
+\end{tabularx}
+\end{table}
+
+\subsection{Recommended UI Interpretation}
+
+The system is most naturally used in one of the following ways:
+\begin{itemize}
+    \item \textbf{scene launcher}: the performer triggers structural states such as intro, build, or breakdown;
+    \item \textbf{semantic mixer}: the performer continuously adjusts high-level controls such as energy or density;
+    \item \textbf{AI accompanist}: the model sustains an evolving accompaniment while the human performs melody or vocals;
+    \item \textbf{call-and-response instrument}: the performer injects intentions and the model answers within the ongoing stream.
+\end{itemize}
+
+These use cases all depend on a continuous historical state. If the system restarted from scratch for every update, it would behave like an offline renderer rather than a musical instrument.
+
+\subsection{Control Granularity and Honest Claim Boundaries}
+
+The paper's instrument claim is intentionally limited to \emph{phrase-level} and \emph{section-level} interaction. The current system should not be framed as a millisecond-level gesture synthesizer or a note-accurate replacement for traditional instrumental technique. The relevant claim is instead:
+\begin{quote}
+\emph{The model functions as a real-time phrase-level generative instrument for high-level semantic musical steering.}
+\end{quote}
+
+This wording accurately reflects the measured latency, the chunk-based online scheduler, and the semantics-oriented control interface.
+
+\section{Failure Modes and Limitations}
+
+\subsection{Chunk-Boundary Effects}
+
+Streaming systems remain vulnerable to errors at chunk boundaries. Even with teacher-guided distillation, long-horizon continuation can exhibit:
+\begin{itemize}
+    \item local rhythm drift,
+    \item transient blurring,
+    \item slight timbral reconfiguration across boundaries,
+    \item over-rapid changes when chunk duration is set too low.
+\end{itemize}
+
+\subsection{Very Short Control Windows}
+
+The chunk-duration ablation shows that very short online control windows can increase responsiveness but may reduce objective quality. This tradeoff is expected: more frequent boundaries give the user more opportunities to intervene, but also require the model to maintain continuity under more frequent context updates.
+
+\subsection{Teacher Dependence}
+
+Because the training regime is data-free and teacher-supervised, student quality is bounded by the teacher's own trajectory quality and prompt coverage. The student is trained to inherit the teacher's behavior efficiently, not to surpass it unconditionally.
+
+\subsection{Phrase-Level, Not Note-Level, Interactivity}
+
+The system should not be interpreted as a note-level improvisation engine. Control changes are expressed at chunk boundaries and through high-level semantic dimensions. Its strongest current use case is live steering of structure, energy, density, and arrangement over an ongoing musical stream.
+
+\section{Artifact and Code Organization}
+\label{sec:artifact_files}
+
+The repository contains the following scripts and utilities relevant to the experiments described in the paper.
+
+\begin{longtable}{@{}p{0.35\textwidth}p{0.58\textwidth}@{}}
+\toprule
+\textbf{File} & \textbf{Purpose} \\
+\midrule
+\endhead
+\texttt{run\_distillation.sh} & Main full-loss distillation launch script. \\
+\texttt{run\_distillation\_mse\_gpu1.sh} & Latent-only distillation run. \\
+\texttt{run\_distillation\_fft\_gpu0.sh} & Latent + spectral distillation run. \\
+\texttt{run\_distillation\_diff\_gpu1.sh} & Latent + temporal-difference distillation run. \\
+\texttt{infer\_lora.py} & Standard single-prompt inference with a trained LoRA adapter. \\
+\texttt{infer\_lora\_csv.py} & Standard batch inference over CSV prompts. \\
+\texttt{streaming\_infer\_lora.py} & Student-only streaming inference entry point. \\
+\texttt{streaming\_infer\_lora\_csv.py} & Batch streaming inference over CSV prompts. \\
+\texttt{run\_all\_ablation\_inference.sh} & Convenience launcher for step sweeps and chunk sweeps. \\
+\texttt{benchmark\_latency.py} & Latency benchmark utility that writes timing CSV files. \\
+\texttt{run\_latency\_benchmarks.sh} & Batch launcher for latency benchmarking. \\
+\bottomrule
+\end{longtable}
+
+\subsection{Representative Commands}
+
+The following examples show the intended usage style.
+
+\paragraph{Standard batch inference.}
+\begin{lstlisting}
+bash run_inference_lora_csv.sh
+\end{lstlisting}
+
+\paragraph{Streaming batch inference.}
+\begin{lstlisting}
+bash run_streaming_inference_lora_csv.sh
+\end{lstlisting}
+
+\paragraph{Combined ablation inference.}
+\begin{lstlisting}
+bash run_all_ablation_inference.sh
+\end{lstlisting}
+
+\paragraph{Latency benchmarks.}
+\begin{lstlisting}
+LIMIT=10 REPEATS=3 bash run_latency_benchmarks.sh
+\end{lstlisting}
+
+\section{Suggested Supplementary Demonstrations}
+
+For an online supplement or demo page, we recommend organizing qualitative evidence into four groups:
+\begin{enumerate}
+    \item \textbf{offline versus streaming comparison}: same prompt, standard inference versus streaming continuation;
+    \item \textbf{loss ablation}: latent-only, spectral, temporal, and full objective at matched settings;
+    \item \textbf{chunk-size interaction study}: short versus long control windows;
+    \item \textbf{live steering showcase}: a sequence of scene changes or semantic control updates over uninterrupted playback.
+\end{enumerate}
+
+The last category is particularly important for supporting the ``instrument'' claim. A compelling demonstration does not need note-level gestural control; it should show that a performer can redirect the musical trajectory \emph{while the stream continues} and that the resulting transitions remain musically meaningful.
+
+\section{Recommended Additions If Space Allows}
+
+If the supplementary package includes audio, video, or a project webpage, the following additions are likely to help reviewers:
+\begin{itemize}
+    \item short side-by-side audio clips for the full objective versus latent-only,
+    \item a screen capture of the live steering interface,
+    \item a timeline illustration showing prompt updates, chunk boundaries, and audible response,
+    \item a compact latency summary table aggregating mean and standard deviation across repeated runs,
+    \item failure examples showing where very short chunk durations destabilize continuity.
+\end{itemize}
+
+\section{Takeaway}
+
+The main paper argues that text-to-music generation can be reframed from offline prompt-and-wait rendering into a continuously steerable streaming process. The contribution is therefore not only faster inference. The key result is the combination of:
+\begin{itemize}
+    \item prompt-only data-free teacher supervision,
+    \item streaming consistency distillation,
+    \item music-aware latent objectives,
+    \item chunk-wise cached inference,
+    \item measurable improvements in startup latency and interaction usability.
+\end{itemize}
+
+Taken together, these ingredients support a phrase-level interactive generative instrument that can be used for live musical steering and human--AI co-creation.
+
+\end{document}

@@ -1,0 +1,5 @@
+subfolder,audio_dir,status,num_wavs,expected_num_wavs,missing_num_wavs,coverage,clap_score,passt_kld,openl3_fd,started_at_utc,finished_at_utc,duration_sec,note
+v1_csec_0p5_step_1,/data/liaoyue/tcwbs/output/songdescriber_filtered/v1_csec_0p5_step_1,ok,279,279,0,1.0,0.25626158714294434,0.35219043493270874,291.91052580248964,2026-04-27T18:17:10.959506+00:00,2026-04-27T18:44:17.555075+00:00,1626.596,
+v1_csec_1p0_step_1,/data/liaoyue/tcwbs/output/songdescriber_filtered/v1_csec_1p0_step_1,ok,279,279,0,1.0,0.2676183581352234,0.3266603946685791,283.70633959882264,2026-04-27T18:44:17.559254+00:00,2026-04-27T19:12:11.163687+00:00,1673.604,
+v1_csec_1p5_step_1,/data/liaoyue/tcwbs/output/songdescriber_filtered/v1_csec_1p5_step_1,ok,279,279,0,1.0,0.29189950227737427,0.3074468672275543,271.7032062514203,2026-04-27T19:12:11.312132+00:00,2026-04-27T19:42:03.752080+00:00,1792.44,
+v1_csec_2p0_step_1,/data/liaoyue/tcwbs/output/songdescriber_filtered/v1_csec_2p0_step_1,ok,279,279,0,1.0,0.27386099100112915,0.30163365602493286,277.4117731297092,2026-04-27T19:42:03.756829+00:00,2026-04-27T20:13:51.041427+00:00,1907.285,
