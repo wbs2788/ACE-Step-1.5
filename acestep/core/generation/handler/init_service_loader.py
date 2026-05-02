@@ -122,6 +122,8 @@ class InitServiceLoaderMixin(InitServiceLoaderComponentsMixin):
         quantization: Optional[str],
     ) -> str:
         """Load DiT, apply compile/quantization options, and return selected attention backend."""
+        import transformers
+        from packaging.version import parse as parse_version
         from transformers import AutoModel
 
         if not os.path.exists(model_checkpoint_path):
@@ -169,6 +171,11 @@ class InitServiceLoaderMixin(InitServiceLoaderComponentsMixin):
 
         last_attn_error = None
         self.model = None
+        dtype_kwarg = (
+            {"dtype": self.dtype}
+            if parse_version(transformers.__version__) >= parse_version("4.56.0")
+            else {"torch_dtype": self.dtype}
+        )
         for candidate in attn_candidates:
             try:
                 logger.info(f"[initialize_service] Attempting to load model with attention implementation: {candidate}")
@@ -176,7 +183,7 @@ class InitServiceLoaderMixin(InitServiceLoaderComponentsMixin):
                     model_checkpoint_path,
                     trust_remote_code=True,
                     attn_implementation=candidate,
-                    dtype=self.dtype,
+                    **dtype_kwarg,
                 )
                 attn_implementation = candidate
                 break

@@ -14,9 +14,20 @@
 # limitations under the License.
 """AceStep model configuration"""
 
-from transformers.configuration_utils import PretrainedConfig, layer_type_validation
+from transformers.configuration_utils import PretrainedConfig
 from transformers.modeling_rope_utils import rope_config_validation
 from transformers.utils import logging
+
+try:
+    from transformers.configuration_utils import layer_type_validation
+except ImportError:
+
+    def layer_type_validation(layer_types):
+        """Validate attention layer type names on Transformers versions without this helper."""
+        valid_layer_types = {"sliding_attention", "full_attention"}
+        invalid_layer_types = [layer_type for layer_type in layer_types if layer_type not in valid_layer_types]
+        if invalid_layer_types:
+            raise ValueError(f"Invalid layer types: {invalid_layer_types}")
 
 
 logger = logging.get_logger(__name__)
